@@ -123,6 +123,8 @@
     function start(startSec, audioIndex, force) {
       ended = false;
       setBuffering(true);
+      // On TVs that can't seek in a file, starting mid-way means letting the server start there
+      if (!force && startSec > 1 && S.get('avSeekBroken')) force = 'remux';
       var body = {
         capabilities: S.capabilities(), start: startSec, session: session,
         audio_index: audioIndex === undefined ? null : audioIndex,
@@ -147,7 +149,14 @@
         return backend.open(url, { uhd: uhd, bufferSec: d.seekable ? 0 : 6, displayMode: S.get('pictureMode') }).then(function () {
           if (destroyed) return;
           var after = Promise.resolve();
-          if (d.seekable && startSec > 1) after = backend.seek(startSec);
+          if (d.seekable && startSec > 1) {
+            after = backend.seek(startSec).catch(function (e) {
+              // Remember for next time and restart from the right place on the server
+              S.set('avSeekBroken', true);
+              SM.devlog.log('player.resumeFallback', { startSec: startSec });
+              return start(startSec, audioIndex, 'remux').then(function () { throw 'restarted'; });
+            });
+          }
           return after.then(function () {
             if (d.mode === 'direct' && d.audio_ordinal > 0) {
               if (!backend.selectAudio(d.audio_ordinal)) {
@@ -162,7 +171,7 @@
             renderInfo();
           });
         });
-      }).catch(function (err) { onError(err); });
+      }).catch(function (err) { if (err !== 'restarted') onError(err); });
     }
 
     function onError(err) {
@@ -231,11 +240,14 @@
       SM.devlog.log('player.seekTo', { target: target, now: now(), seekable: decision && decision.seekable, mode: decision && decision.mode });
       target = Math.max(0, Math.min(duration ? duration - 3 : target, target));
       if (!decision) return;
-      if (decision.seekable) {
+      if (decision.seekable && S.get('avSeekBroken')) {
+        start(target, decision.audio_index, 'remux');
+      } else if (decision.seekable) {
         setBuffering(true);
         backend.seek(target).then(function () { lastTime = target; lastTimeAt = Date.now(); setBuffering(false); },
           function () {
             // The TV refused to seek in the file: let the server stream from the new position
+            S.set('avSeekBroken', true);
             SM.devlog.log('player.seekFallback', { target: target });
             start(target, decision.audio_index, 'remux');
           });

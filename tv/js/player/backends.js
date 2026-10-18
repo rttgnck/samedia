@@ -255,6 +255,9 @@
       if (SM.util.isTizen && window.webapis && webapis.avplay) {
         var obj = document.createElement('object');
         obj.setAttribute('type', 'application/avplayer');
+        obj.setAttribute('tabindex', '-1');
+        // Keys must stay with the page, never go to the video plug-in
+        obj.addEventListener('focus', function () { obj.blur(); });
         obj.className = 'av-object';
         mount.appendChild(obj);
         return new AVPlayBackend(obj);

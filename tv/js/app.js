@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.3.2';
+  SM.VERSION = '0.3.3';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -246,8 +246,10 @@
       SM.settings.set('token', '');
       SM.router.reset('setup', { change: false });
     });
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('keyup', onKeyUp);
+    // Capture phase on window: keys reach the app before any element (e.g. the video
+    // <object>) can swallow them.
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keyup', onKeyUp, true);
     window.addEventListener('blur', function () { clearTimeout(enter.timer); enter.down = 0; enter.long = false; });
     SM.events.on('profile', renderProfile);
     // Tizen keeps the app alive in the background: coming back after a while (e.g. once the
@@ -266,10 +268,15 @@
       nav.classList.toggle('open', nav.contains(e.target));
     });
     // Mouse/pointer support (Samsung "Smart Remote" pointer, and desktop development).
-    document.addEventListener('mouseover', function (e) {
-      var f = e.target.closest && e.target.closest('.f');
-      if (f && f !== SM.focus.get()) SM.focus.set(f, { noScroll: true });
-    });
+    if (SM.util.isTizen) {
+      document.documentElement.classList.add('tv');
+    } else {
+      // Desktop development: hovering focuses (on the TV a stray pointer must not move focus)
+      document.addEventListener('mouseover', function (e) {
+        var f = e.target.closest && e.target.closest('.f');
+        if (f && f !== SM.focus.get()) SM.focus.set(f, { noScroll: true });
+      });
+    }
 
     if (!SM.settings.get('server')) {
       SM.router.push('setup', {});

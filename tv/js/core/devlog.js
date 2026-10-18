@@ -56,6 +56,23 @@
       };
     });
     log('start', { ua: navigator.userAgent, w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio });
+    // Is the TV's pointer active? (it can eat the remote's left/right)
+    var lastMove = 0;
+    document.addEventListener('mousemove', function (e) {
+      if (Date.now() - lastMove < 1000) return;
+      lastMove = Date.now();
+      log('mousemove', { x: e.clientX, y: e.clientY });
+    }, true);
+    ['mousedown', 'click', 'wheel'].forEach(function (t) {
+      document.addEventListener(t, function (e) { log(t, { x: e.clientX, y: e.clientY, target: describe(e.target) }); }, true);
+    });
+    // Every key at the earliest point, with the element that has DOM focus
+    window.addEventListener('keydown', function (e) {
+      log('rawkey', { code: e.keyCode, key: e.key, repeat: e.repeat, active: describe(document.activeElement) });
+    }, true);
+    window.addEventListener('blur', function () { log('window.blur'); });
+    window.addEventListener('focus', function () { log('window.focus'); });
+    document.addEventListener('visibilitychange', function () { log('visibility', document.hidden ? 'hidden' : 'visible'); });
   }
 
   SM.devlog = { on: !!cfg, log: log, describe: describe, at: at };
