@@ -174,6 +174,7 @@
     this.lastKey = null;
     this.textEl.innerHTML = '';
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.canvas.classList.toggle('on', !!track && track.format === 'pgs');
   };
 
   Renderer.prototype.update = function (t) {

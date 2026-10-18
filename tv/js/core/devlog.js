@@ -32,6 +32,33 @@
     if (!timer) timer = setTimeout(flush, 500);
   }
 
+  /** Effective opacity of a node (its own times all its ancestors'). */
+  function opacityOf(node) {
+    var o = 1;
+    for (var n = node; n && n.nodeType === 1; n = n.parentNode) o *= parseFloat(getComputedStyle(n).opacity);
+    return Math.round(o * 100) / 100;
+  }
+
+  /** Every rendered element overlapping a box around a point — including ones that ignore
+   *  pointer hits, which elementsFromPoint() leaves out. Full-screen containers are skipped
+   *  unless they paint something. */
+  function near(x, y, r) {
+    var out = [], all = document.body.getElementsByTagName('*');
+    for (var i = 0; i < all.length && out.length < 30; i++) {
+      var n = all[i], b = n.getBoundingClientRect();
+      if (!b.width || !b.height || b.right < x - r || b.left > x + r || b.bottom < y - r || b.top > y + r) continue;
+      var cs = getComputedStyle(n);
+      if (cs.display === 'none') continue;
+      var paints = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' || cs.boxShadow !== 'none' || cs.borderTopWidth !== '0px' ||
+        cs.animationName !== 'none' || /^(IMG|CANVAS|VIDEO|OBJECT|SVG)$/i.test(n.tagName) || (n.childNodes.length === 1 && n.firstChild.nodeType === 3);
+      if (!paints) continue;
+      out.push(describe(n) + ' [' + Math.round(b.left) + ',' + Math.round(b.top) + ' ' + Math.round(b.width) + 'x' + Math.round(b.height) +
+        ', op ' + opacityOf(n) + ', vis ' + cs.visibility + ', bg ' + cs.backgroundColor + ', anim ' + cs.animationName +
+        ', pe ' + cs.pointerEvents + ']');
+    }
+    return out;
+  }
+
   /** What is drawn at a screen point (top-most first) — e.g. to find what covers the video. */
   function at(x, y) {
     if (!document.elementsFromPoint) return [];
@@ -75,5 +102,5 @@
     document.addEventListener('visibilitychange', function () { log('visibility', document.hidden ? 'hidden' : 'visible'); });
   }
 
-  SM.devlog = { on: !!cfg, log: log, describe: describe, at: at };
+  SM.devlog = { on: !!cfg, log: log, describe: describe, at: at, near: near };
 })();

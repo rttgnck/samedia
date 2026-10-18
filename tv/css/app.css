@@ -272,7 +272,10 @@ body.no-nav .nav { display: none; }
 .player { background: transparent; }
 .av-mount, .av-object { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 1920px; height: 1080px; }
 video.av-object { background: #000; object-fit: contain; }
-.subs-canvas { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 1920px; height: 1080px; pointer-events: none; object-fit: contain; }
+/* Only in the page while bitmap subtitles show: anything left over the video plane can show on this TV */
+.subs-canvas { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 1920px; height: 1080px; pointer-events: none; object-fit: contain;
+  display: none; }
+.subs-canvas.on { display: block; }
 .subs-text { position: absolute; left: 160px; right: 160px; bottom: 90px; text-align: center; pointer-events: none; transition: bottom .25s; }
 .player.osd-visible .subs-text { bottom: 300px; }
 .subs-text .cue-group { display: flex; flex-direction: column; align-items: center; gap: 6px; }
@@ -285,8 +288,14 @@ video.av-object { background: #000; object-fit: contain; }
 .subs-text.size-medium .cue { font-size: 50px; }
 .subs-text.size-large .cue { font-size: 62px; }
 
-.player-spinner { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: grid; place-items: center; opacity: 0; transition: opacity .2s; pointer-events: none; }
-.player-spinner.on { opacity: 1; transition-delay: .4s; }
+/* Removed (not just transparent) when not buffering: a hidden but still spinning layer can be
+   drawn over the video on Samsung TVs */
+.player-spinner { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: none; place-items: center; pointer-events: none; }
+.player-spinner.on { display: grid; animation: fade-in .2s .4s both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* Developer builds: blink everything but the video to tell page marks from TV ones */
+html.dev-hide-ui * { visibility: hidden !important; }
+html.dev-hide-ui .av-mount, html.dev-hide-ui .av-object { visibility: visible !important; }
 .player-spinner .spinner { width: 96px; height: 96px; border-width: 7px; }
 
 .osd { position: absolute; top: 0; right: 0; bottom: 0; left: 0; opacity: 0; transition: opacity .25s; pointer-events: none; }
