@@ -19,7 +19,8 @@
     opts = opts || {};
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, opts.timeout || 15000) : null;
-    var headers = { 'Content-Type': 'application/json' };
+    // No Content-Type on body-less requests: keeps simple GETs free of a CORS preflight
+    var headers = body === undefined ? {} : { 'Content-Type': 'application/json' };
     var token = S.get('token');
     if (token) headers.Authorization = 'Bearer ' + token;
     var url = (opts.base !== undefined ? opts.base : base()) + path;
@@ -47,6 +48,7 @@
       clearTimeout(timer);
       var err = new Error(e && e.name === 'AbortError' ? 'Server did not respond' : 'Cannot reach server');
       err.network = true;
+      err.cause = e ? (e.name || 'Error') + (e.message ? ': ' + e.message : '') : '';
       throw err;
     });
   }
@@ -65,12 +67,44 @@
       });
   }
 
-  /** Scan the TV's /24 subnet for servers on port 8097. */
-  function discover(onFound, onProgress) {
+  var IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+  function usable(ip) { return !!ip && IPV4.test(ip) && ip !== '0.0.0.0' && ip.indexOf('127.') !== 0; }
+
+  function systemInfoIp(property) {
+    return new Promise(function (resolve) {
+      try {
+        tizen.systeminfo.getPropertyValue(property, function (net) { resolve(net && net.ipAddress); },
+          function () { resolve(null); });
+      } catch (e) { resolve(null); }
+    });
+  }
+
+  /** The TV's own IPv4 address: Samsung webapis first, then Tizen system info (wired, Wi-Fi). */
+  function localIp() {
     var ip = null;
-    try { ip = webapis.network.getIp(); } catch (e) { /* not on a TV */ }
-    if (!ip) ip = '192.168.1.2';
-    var prefix = ip.split('.').slice(0, 3).join('.');
+    try { ip = webapis.network.getIp(); } catch (e) { /* not on a TV, or webapis unavailable */ }
+    if (usable(ip)) return Promise.resolve({ ip: ip, source: 'webapis' });
+    return systemInfoIp('ETHERNET_NETWORK').then(function (eth) {
+      if (usable(eth)) return { ip: eth, source: 'ethernet' };
+      return systemInfoIp('WIFI_NETWORK').then(function (wifi) {
+        return usable(wifi) ? { ip: wifi, source: 'wifi' } : { ip: null, source: null };
+      });
+    });
+  }
+
+  /** Scan the TV's /24 subnet for servers on port 8097. onStart({ip, prefix}) reports what's scanned. */
+  function discover(onFound, onProgress, onStart) {
+    return localIp().then(function (local) {
+      // Without our own address, guess the most common home subnet
+      var ip = local.ip || '192.168.1.2';
+      var prefix = ip.split('.').slice(0, 3).join('.');
+      onStart && onStart({ ip: local.ip, source: local.source, prefix: prefix });
+      return scan(prefix, onFound, onProgress);
+    });
+  }
+
+  function scan(prefix, onFound, onProgress) {
     var hosts = [];
     for (var i = 1; i < 255; i++) hosts.push(prefix + '.' + i);
     var done = 0, found = [], idx = 0;
@@ -94,7 +128,7 @@
   }
 
   SM.api = {
-    base: base, abs: abs, art: art, probe: probe, discover: discover,
+    base: base, abs: abs, art: art, probe: probe, discover: discover, localIp: localIp,
     get: function (path, opts) { return request('GET', path, undefined, opts); },
     post: function (path, body, opts) { return request('POST', path, body || {}, opts); },
     home: function () { return request('GET', '/api/v1/home'); },

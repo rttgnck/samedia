@@ -15,6 +15,7 @@
   SM.router.register('setup', function (params) {
     var found = el('div.found-list', { 'data-group': '' });
     var status = el('div.setup-status', { text: '' });
+    var netInfo = el('div.setup-net', { text: '' });
     var address = el('div.input-box', { text: '' });
     var manualValue = S.get('server') ? S.get('server').replace(/^http:\/\//, '').replace(/:8097$/, '') : '';
     address.textContent = manualValue || 'e.g. 192.168.1.20';
@@ -32,7 +33,7 @@
         el('p.lead', { text: 'Run the Samedia server on your NAS (nasOS App Store → Samedia), then pick it below.' }),
         el('div.setup-cols', [
           el('div.setup-col', [el('h3', { text: 'On your network' }), found,
-            ui.button('Search again', 'search', discover, 'ghost')]),
+            ui.button('Search again', 'search', discover, 'ghost'), netInfo]),
           el('div.setup-col', [el('h3', { text: 'Or enter its address' }), address, kb]),
         ]),
         status,
@@ -48,7 +49,7 @@
         if (inf.pin_required) return askPin(url, inf);
         return finish(url, '', inf);
       }).catch(function (err) {
-        status.textContent = 'Could not connect: ' + err.message;
+        status.textContent = 'Could not connect to ' + url + ': ' + err.message + (err.cause ? ' (' + err.cause + ')' : '');
       });
     }
 
@@ -87,6 +88,10 @@
         ]);
         found.appendChild(row);
         if (found.children.length === 1) SM.focus.claim(view, row);
+      }, null, function (net) {
+        netInfo.textContent = net.ip
+          ? 'This TV: ' + net.ip + ' · searching ' + net.prefix + '.1–254'
+          : "Couldn't read this TV's address · trying " + net.prefix + '.1–254';
       }).then(function (all) {
         if (!all.length) scanning.textContent = 'No servers found automatically. Enter the address instead.';
       });
