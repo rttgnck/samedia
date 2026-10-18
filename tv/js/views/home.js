@@ -130,10 +130,13 @@
 
     view.refresh = function () {
       var keep = flow && flow.current() ? flow.current().id : null;
-      var focusedFlow = flow && SM.focus.get() === flow.el;
+      // Refresh runs as the view reappears (e.g. back from the player), before the router restores
+      // focus: judge by what this view had focused when it was covered, not the current focus.
+      var had = view.focus || SM.focus.get();
+      var onTab = !!(had && tabs.contains(had));
       SM.api.home().then(function (d) {
-        render(d, keep);
-        if (!focusedFlow && tabs.children[active]) SM.focus.set(tabs.children[active], { instant: true });
+        render(d, keep);                          // render() puts focus on the cover flow
+        if (onTab && tabs.children[active]) SM.focus.set(tabs.children[active], { instant: true });
       }, function () {});
     };
     view.onKey = function (action) {

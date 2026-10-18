@@ -13,6 +13,7 @@
   'use strict';
 
   var PREPARE_TIMEOUT_MS = 30000; // a file the TV can't open may never call back
+  var avGeneration = 0;           // webapis.avplay is one shared player: tag each opening
 
   // Picture modes: fit (letterbox), fill (crop to fill the screen), stretch
   var AV_MODES = { fit: 'PLAYER_DISPLAY_MODE_LETTER_BOX', fill: 'PLAYER_DISPLAY_MODE_CROPPED_FULL',
@@ -37,6 +38,7 @@
     var self = this, av = this.av;
     opts = opts || {};
     this._closeQuiet();
+    this._gen = ++avGeneration;
     this._time = 0;
     return new Promise(function (resolve, reject) {
       var settled = false;
@@ -83,6 +85,16 @@
         });
         av.prepareAsync(function () {
           if (settled) return;
+          // The app draws subtitles itself; stop the TV's player drawing its own (an empty
+          // native subtitle box can sit on the picture for the whole film).
+          try { av.setSilentSubtitle(true); } catch (e) { /* older firmware */ }
+          if (SM.devlog.on) {
+            var tracks = [];
+            try { tracks = av.getTotalTrackInfo().map(function (t) { return t.type + ':' + t.index; }); } catch (e) {}
+            var dur = null;
+            try { dur = av.getDuration(); } catch (e) {}
+            SM.devlog.log('av.prepared', { duration: dur, tracks: tracks });
+          }
           self.emit('ready');
           done(resolve);
         }, function (err) {
@@ -104,22 +116,44 @@
     try { return this.av.getState() === 'PLAYING'; } catch (e) { return false; }
   };
 
+  /** Seek to an absolute time; if the TV refuses (seen: InvalidValuesError), try a relative jump. */
   AVPlayBackend.prototype.seek = function (sec) {
     var av = this.av, self = this;
     var before = this.time(), state = this.state();
-    SM.devlog.log('av.seek', { to: sec, from: before, state: state });
+    var dur = null;
+    try { dur = av.getDuration(); } catch (e) { /* unknown */ }
+    SM.devlog.log('av.seek', { to: sec, from: before, state: state, duration: dur });
+    function errName(e) { return e && (e.name || e.message || String(e)); }
+
+    function jump(resolve, reject, firstErr) {
+      var delta = Math.round((sec - self.time()) * 1000);
+      var fn = delta >= 0 ? 'jumpForward' : 'jumpBackward';
+      try {
+        av[fn](Math.abs(delta), function () {
+          SM.devlog.log('av.jump.ok', { fn: fn, delta: delta, now: self.time() });
+          self._time = sec; resolve();
+        }, function (e) {
+          SM.devlog.log('av.jump.fail', { fn: fn, delta: delta, err: errName(e) });
+          reject(firstErr || e);
+        });
+      } catch (e) {
+        SM.devlog.log('av.jump.throw', { fn: fn, err: errName(e) });
+        reject(firstErr || e);
+      }
+    }
+
     return new Promise(function (resolve, reject) {
       try {
         av.seekTo(Math.max(0, Math.floor(sec * 1000)), function () {
           SM.devlog.log('av.seek.ok', { to: sec, now: self.time(), state: self.state() });
           self._time = sec; resolve();
         }, function (e) {
-          SM.devlog.log('av.seek.fail', { to: sec, err: e && (e.name || e.message || String(e)), state: self.state() });
-          reject(e);
+          SM.devlog.log('av.seek.fail', { to: sec, err: errName(e), state: self.state() });
+          jump(resolve, reject, e);
         });
       } catch (e) {
-        SM.devlog.log('av.seek.throw', { to: sec, err: e && (e.name || e.message || String(e)), state: self.state() });
-        reject(e);
+        SM.devlog.log('av.seek.throw', { to: sec, err: errName(e), state: self.state() });
+        jump(resolve, reject, e);
       }
     });
   };
@@ -144,14 +178,23 @@
   };
 
   AVPlayBackend.prototype._closeQuiet = function () {
-    SM.devlog.log('av.close', this.state());
+    var t0 = Date.now(), st = this.state();
     try {
-      var st = this.av.getState();
       if (st !== 'NONE' && st !== 'IDLE') this.av.stop();
       if (st !== 'NONE') this.av.close();
     } catch (e) { /* already closed */ }
+    SM.devlog.log('av.close', { from: st, ms: Date.now() - t0 });
   };
-  AVPlayBackend.prototype.stop = function () { this._closeQuiet(); };
+  /** Leaving the player: stop the picture now, release the decoder once the UI has redrawn. */
+  AVPlayBackend.prototype.stop = function () {
+    var self = this, gen = this._gen;
+    try { if (this.state() === 'PLAYING') this.av.pause(); } catch (e) { /* ignore */ }
+    setTimeout(function () {
+      // Something else (e.g. the next episode) may already be using the player
+      if (gen === avGeneration) self._closeQuiet();
+      else SM.devlog.log('av.close.skipped', { mine: gen, current: avGeneration });
+    }, 120);
+  };
   AVPlayBackend.prototype.suspend = function () { try { this.av.suspend(); } catch (e) {} };
   AVPlayBackend.prototype.restore = function () { try { this.av.restore(); } catch (e) {} };
 

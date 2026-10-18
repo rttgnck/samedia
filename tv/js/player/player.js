@@ -234,7 +234,11 @@
       if (decision.seekable) {
         setBuffering(true);
         backend.seek(target).then(function () { lastTime = target; lastTimeAt = Date.now(); setBuffering(false); },
-          function () { setBuffering(false); });
+          function () {
+            // The TV refused to seek in the file: let the server stream from the new position
+            SM.devlog.log('player.seekFallback', { target: target });
+            start(target, decision.audio_index, 'remux');
+          });
       } else {
         start(target, decision.audio_index, decision.mode === 'transcode' ? 'transcode' : (decision.mode === 'remux' ? 'remux' : null));
       }
