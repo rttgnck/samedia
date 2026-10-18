@@ -119,21 +119,36 @@
     // ── flip to the back of the centre cover ──
     function toggleFlip() { if (flipped) unflip(); else flip(); }
 
+    /** How far in: "47:12 of 1:35:42 · 48m left" and a bar, or "Watched". */
+    function watchState(it, resumable) {
+      if (it.kind === 'show' || it.kind === 'collection') return null;
+      if (resumable && it.duration) {
+        var pct = Math.min(100, Math.max(2, 100 * it.position / it.duration));
+        return el('div.cf-back-progress', [
+          el('div.cf-back-progress-text', { text: SM.util.clock(it.position) + ' of ' + SM.util.clock(it.duration) +
+            '  ·  ' + SM.util.runtime(it.duration - it.position) + ' left' }),
+          el('div.cf-back-bar', [el('i', { style: { width: pct + '%' } })]),
+        ]);
+      }
+      return it.watched ? el('div.cf-back-progress', [el('div.cf-back-progress-text.done', [ui.icon('check'), el('span', { text: 'Watched' })])]) : null;
+    }
+
     function flip() {
       var node = nodes[index], it = items[index];
       if (!node || !it) return;
       var back = node.querySelector('.cf-back');
       var actions = el('div.cf-actions', { 'data-group': '' });
       var isCol = it.kind === 'collection';
+      var resumable = !!SM.util.resumeAt(it);
       SM.util.clear(back).appendChild(el('div.cf-back-inner', [
         el('div.cf-back-title', { text: it.title }),
         el('div.cf-back-meta', { text: (isCol ? [it.item_count + ' movies', it.years]
           : [it.year, it.certification, it.kind === 'show' ? (it.episode_count + ' episodes') : SM.util.runtime(it.duration),
              (it.genres || []).slice(0, 2).join(', ')]).filter(Boolean).join('  ·  ') }),
+        watchState(it, resumable),
         el('p.cf-back-plot', { text: it.plot || 'No description available.' }),
         actions,
       ]));
-      var resumable = !!SM.util.resumeAt(it);
       var play = el('div.cf-btn.f.primary.autofocus', { onclick: function () { unflip(); opts.onPlay && opts.onPlay(it, true); } },
         [ui.icon('play'), el('span', { text: it.kind === 'show' ? 'Play' : (resumable ? 'Resume' : 'Play') })]);
       var info = el('div.cf-btn.f', { onclick: function () { unflip(); opts.onOpen && opts.onOpen(it); } },

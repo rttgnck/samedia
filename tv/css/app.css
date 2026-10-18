@@ -373,6 +373,12 @@ video.av-object { background: #000; object-fit: contain; }
 .cf-back-inner { display: flex; flex-direction: column; height: 100%; padding: 26px 24px 22px; }
 .cf-back-title { font-size: 26px; font-weight: 800; line-height: 1.1; }
 .cf-back-meta { font-size: 15px; color: var(--dim); margin-top: 8px; }
+.cf-back-progress { margin-top: 14px; }
+.cf-back-progress-text { font-size: 16px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.cf-back-progress-text.done { display: flex; align-items: center; gap: 6px; color: var(--ok); }
+.cf-back-progress-text.done .icon { width: 18px; height: 18px; }
+.cf-back-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .18); margin-top: 8px; overflow: hidden; }
+.cf-back-bar i { display: block; height: 100%; background: var(--accent); }
 .cf-back-plot { flex: 1; font-size: 16px; line-height: 1.45; color: var(--dim); margin: 14px 0; overflow: hidden;
   display: -webkit-box; -webkit-line-clamp: 11; -webkit-box-orient: vertical; }
 .cf-actions { display: flex; flex-direction: column; gap: 10px; }
