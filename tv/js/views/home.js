@@ -28,7 +28,7 @@
         front.classList.remove('on');
         front = back;
       };
-      img.src = SM.api.art(url, 1280);
+      img.src = SM.api.art(url, 1920);   // full-screen background: request full width
     }, 220);
     return root;
   }
@@ -76,11 +76,14 @@
       Array.prototype.forEach.call(tabs.children, function (t, j) { t.classList.toggle('active', j === i); });
       var items = shelves[i].items, start = 0;
       if (keepId) items.forEach(function (it, j) { if (it.id === keepId) start = j; });
+      var bookmarkShelf = shelves[i].id === 'bookmarks';
       flow = SM.CoverFlow(items, {
         startIndex: start,
         onChange: function (it) { backdrop.set(it.backdrop); },
         onOpen: open,
         onPlay: function (it) { quickPlay(it); },
+        // Bookmarks shelf: OK lists that title's bookmarks to play from
+        onEnter: bookmarkShelf ? function (it) { SM.context.bookmarksMenu(it); } : null,
       });
       SM.util.clear(stage).appendChild(flow.el);
       if (focusFlow) SM.focus.set(flow.el, { noScroll: true });

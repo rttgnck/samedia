@@ -277,6 +277,7 @@ video.av-object { background: #000; object-fit: contain; }
 .subs-text .cue { display: inline-block; font-weight: 600; line-height: 1.3; color: #fff; padding: 2px 14px;
   text-shadow: 0 0 6px #000, 0 2px 4px #000, 0 0 2px #000; }
 .subs-text.boxed .cue { background: rgba(0, 0, 0, .62); border-radius: 8px; text-shadow: none; }
+.subs-text .cue:empty { display: none; }
 .subs-text.size-small .cue { font-size: 40px; }
 .subs-text.size-medium .cue { font-size: 50px; }
 .subs-text.size-large .cue { font-size: 62px; }
@@ -295,6 +296,14 @@ video.av-object { background: #000; object-fit: contain; }
 .osd-bar.focused { height: 16px; box-shadow: 0 0 0 4px rgba(255, 255, 255, .35); }
 .osd-bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--accent); }
 .osd-bar .scrub { position: absolute; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 6px rgba(255, 255, 255, .3); }
+.osd-top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 40px; }
+.osd-clock { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); opacity: .9; white-space: nowrap; }
+.osd-ticks { position: absolute; left: 0; right: 0; top: 0; bottom: 0; pointer-events: none; }
+.osd-ticks i { position: absolute; top: -7px; bottom: -7px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--warn); }
+.osd-bubble { position: absolute; bottom: 30px; transform: translateX(-50%); padding: 6px 16px; border-radius: 12px;
+  background: rgba(255, 255, 255, .95); color: #0a0c10; font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums;
+  opacity: 0; transition: opacity .15s; white-space: nowrap; }
+.osd-bubble.on { opacity: 1; }
 .osd-times { display: flex; gap: 26px; margin: 16px 0 26px; font-size: 24px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .osd-times .osd-time { color: var(--text); font-weight: 600; }
 .osd-times .spacer { flex: 1; }
@@ -380,6 +389,13 @@ video.av-object { background: #000; object-fit: contain; }
 .cf-cover.stack .cf-front { box-shadow: 12px -12px 0 -2px rgba(255, 255, 255, .3), 24px -24px 0 -4px rgba(255, 255, 255, .15),
   0 30px 60px rgba(0, 0, 0, .55); }
 .cf-front .count, .cf-front .watched { z-index: 4; }
+.cf-front .watched { width: 52px; height: 52px; background: var(--ok); color: #06140d; }
+.cf-front .watched .icon { width: 30px; height: 30px; }
+.resume-chip { position: absolute; z-index: 4; left: 14px; top: 14px; display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px 5px 9px; border-radius: 14px; background: rgba(7, 9, 13, .82); font-size: 19px; font-weight: 700;
+  font-variant-numeric: tabular-nums; }
+.resume-chip .icon { width: 16px; height: 16px; color: var(--accent); }
+.cf-front .progress { z-index: 4; height: 8px; bottom: 12px; }
 
 /* ── profiles ──────────────────────────────────────────────────── */
 .profiles { display: flex; flex-direction: column; align-items: center; justify-content: center;

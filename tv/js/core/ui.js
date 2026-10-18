@@ -26,6 +26,10 @@
     sort: '<path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M17 20V4M13.5 7.5 17 4l3.5 3.5"/>',
     filter: '<path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/>',
     backspace: '<path d="M21 5H8.5L3 12l5.5 7H21z"/><path d="m12 9 6 6M18 9l-6 6"/>',
+    bookmark: '<path d="M6.5 3.5h11v17l-5.5-4-5.5 4z"/><path d="M12 7.5v5M9.5 10h5"/>',
+    bookmarks: '<path d="M8 3.5h11v15l-5.5-4-5.5 4z"/><path d="M5 7v13.5l4.5-3.2"/>',
+    aspect: '<rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M6 9v-1.5h3M18 15v1.5h-3"/>',
+    list: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
     stack: '<rect x="6" y="3" width="13" height="16" rx="1.5"/><path d="M3.5 6.5V20a1.5 1.5 0 0 0 1.5 1.5h11"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     user: '<circle cx="12" cy="8.5" r="4"/><path d="M4 20.5c1.4-4 4.4-6 8-6s6.6 2 8 6"/>',
@@ -66,8 +70,9 @@
   }
 
   function progressBar(item) {
-    if (!item.duration || !item.position || item.watched) return null;
-    var pct = Math.min(100, Math.max(2, 100 * item.position / item.duration));
+    if (!item.duration || !SM.util.resumeAt(item)) return null;
+    // At least a visible sliver: 30 seconds into a two-hour film is still "started"
+    var pct = Math.min(100, Math.max(6, 100 * item.position / item.duration));
     return el('div.progress', [el('i', { style: { width: pct + '%' } })]);
   }
 
@@ -85,7 +90,8 @@
         item.kind === 'collection' ? el('div.count', { text: String(item.item_count) }) : null]),
       opts.caption === false ? null : el('div.caption', [
         el('div.title', { text: item.title }),
-        el('div.sub', { text: item.year ? String(item.year) : '' }),
+        el('div.sub', { text: SM.util.resumeAt(item) ? 'Resume ' + SM.util.clock(item.position)
+          : item.watched ? 'Watched' : (item.year ? String(item.year) : '') }),
       ]),
     ]);
     card._item = item;

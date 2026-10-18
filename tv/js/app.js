@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.2.1';
+  SM.VERSION = '0.3.0';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -185,7 +185,31 @@
     }, function () { goHome(); });
   }
 
+  /**
+   * What the TV gives us: the web canvas (usually 1920×1080, upscaled by the TV), the pixel
+   * ratio and the physical panel. A canvas other than 1920×1080 gets the UI zoomed to fill it
+   * (CSS zoom re-renders text sharply, unlike a transform), and artwork is fetched for the
+   * real pixel density.
+   */
+  function detectDisplay() {
+    var w = window.innerWidth || 1920, h = window.innerHeight || 1080;
+    var d = { width: w, height: h, dpr: window.devicePixelRatio || 1, panel: null, uhd: false, zoom: 1 };
+    try { d.uhd = !!webapis.productinfo.isUdPanelSupported(); } catch (e) { /* not a Samsung TV */ }
+    try {
+      tizen.systeminfo.getPropertyValue('DISPLAY', function (x) {
+        d.panel = x.resolutionWidth + '×' + x.resolutionHeight;
+      }, function () {});
+    } catch (e) { /* not Tizen */ }
+    if (SM.util.isTizen && (w !== 1920 || h !== 1080)) {
+      d.zoom = Math.min(w / 1920, h / 1080);
+      document.documentElement.style.zoom = String(d.zoom);
+    }
+    d.artScale = Math.max(1, Math.min(2, d.dpr * d.zoom));
+    SM.display = d;
+  }
+
   function boot() {
+    detectDisplay();
     SM.keys.register();
     views = el('main.views');
     var shell = el('div.shell', [buildNav(), views]);

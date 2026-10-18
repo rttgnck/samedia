@@ -14,6 +14,11 @@
 
   var PREPARE_TIMEOUT_MS = 30000; // a file the TV can't open may never call back
 
+  // Picture modes: fit (letterbox), fill (crop to fill the screen), stretch
+  var AV_MODES = { fit: 'PLAYER_DISPLAY_MODE_LETTER_BOX', fill: 'PLAYER_DISPLAY_MODE_CROPPED_FULL',
+                   stretch: 'PLAYER_DISPLAY_MODE_FULL_SCREEN' };
+  var CSS_FIT = { fit: 'contain', fill: 'cover', stretch: 'fill' };
+
   function Emitter() { this._h = {}; }
   Emitter.prototype.on = function (n, fn) { (this._h[n] = this._h[n] || []).push(fn); };
   Emitter.prototype.emit = function (n, a) { (this._h[n] || []).forEach(function (fn) { fn(a); }); };
@@ -50,7 +55,8 @@
       try {
         av.open(url);
         av.setDisplayRect(0, 0, 1920, 1080);
-        av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+        try { av.setDisplayMethod(AV_MODES[opts.displayMode] || AV_MODES.fit); }
+        catch (e) { av.setDisplayMethod(AV_MODES.fit); }
         if (opts.uhd) {
           try { av.setStreamingProperty('SET_MODE_4K', 'TRUE'); } catch (e) { /* older firmware */ }
         }
@@ -82,6 +88,10 @@
         done(reject, e);
       }
     });
+  };
+
+  AVPlayBackend.prototype.setDisplayMode = function (mode) {
+    try { this.av.setDisplayMethod(AV_MODES[mode] || AV_MODES.fit); return true; } catch (e) { return false; }
   };
 
   AVPlayBackend.prototype.play = function () { try { this.av.play(); } catch (e) { /* not ready */ } };
@@ -160,6 +170,8 @@
       v.load();
     });
   };
+  HTML5Backend.prototype.setDisplayMode = function (mode) { this.v.style.objectFit = CSS_FIT[mode] || 'contain'; return true; };
+
   HTML5Backend.prototype.play = function () { var p = this.v.play(); if (p && p.catch) p.catch(function () {}); };
   HTML5Backend.prototype.pause = function () { this.v.pause(); };
   HTML5Backend.prototype.isPlaying = function () { return !this.v.paused && !this.v.ended; };

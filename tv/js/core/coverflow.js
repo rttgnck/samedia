@@ -25,7 +25,8 @@
   }
 
   /**
-   * opts: { startIndex, onChange(item), onOpen(item), onPlay(item, resume), backContent(item) -> Promise<{meta, plot, play}> }
+   * opts: { startIndex, onChange(item), onOpen(item), onPlay(item, resume), onEnter(item) (replaces flipping),
+   *         backContent(item) -> Promise<{meta, plot, play}> }
    */
   function CoverFlow(items, opts) {
     opts = opts || {};
@@ -42,15 +43,16 @@
     function cover(i) {
       var it = items[i];
       var isCol = it.kind === 'collection';
-      var front = el('div.cf-front', [ui.image(it.poster, 400, it.title, 'poster'),
+      var front = el('div.cf-front', [ui.image(it.poster, 500, it.title, 'poster'),
         it.watched ? el('div.watched', [ui.icon('check')]) : null, ui.progressBar(it),
+        SM.util.resumeAt(it) ? el('div.resume-chip', [ui.icon('play'), el('span', { text: SM.util.clock(it.position) })]) : null,
         isCol ? el('div.count', { text: String(it.item_count) }) : null,
         it.kind === 'show' && it.unwatched ? el('div.count', { text: String(it.unwatched) }) : null]);
       var back = el('div.cf-back');
       var node = el('div.cf-cover' + (isCol ? '.stack' : ''), { dataset: { i: String(i) } }, [el('div.cf-card', [front, back])]);
       node.addEventListener('click', function (e) {
         if (e.target.closest('.cf-back')) return;
-        if (i === index) toggleFlip();
+        if (i === index) { if (opts.onEnter) opts.onEnter(items[index]); else toggleFlip(); }
         else setIndex(i);
       });
       return node;
@@ -88,6 +90,9 @@
         bits.push(it.item_count + ' movies');
         if (it.years) bits.push(it.years);
       } else if (it) {
+        if (SM.util.resumeAt(it)) bits.push('Resume at ' + SM.util.clock(it.position));
+        else if (it.watched) bits.push('Watched');
+        if (it.bookmarks && it.bookmarks.length) bits.push(SM.util.plural(it.bookmarks.length, 'bookmark'));
         if (it.kind === 'episode') bits.push(it.show_title + ' · ' + SM.util.episodeCode(it));
         if (it.year) bits.push(String(it.year));
         if (it.certification) bits.push(it.certification);
@@ -128,7 +133,7 @@
         el('p.cf-back-plot', { text: it.plot || 'No description available.' }),
         actions,
       ]));
-      var resumable = it.position > 30 && !it.watched;
+      var resumable = !!SM.util.resumeAt(it);
       var play = el('div.cf-btn.f.primary.autofocus', { onclick: function () { unflip(); opts.onPlay && opts.onPlay(it, true); } },
         [ui.icon('play'), el('span', { text: it.kind === 'show' ? 'Play' : (resumable ? 'Resume' : 'Play') })]);
       var info = el('div.cf-btn.f', { onclick: function () { unflip(); opts.onOpen && opts.onOpen(it); } },
@@ -169,7 +174,9 @@
         case 'chdown': setIndex(index + 10); return true;
         case 'rw': setIndex(index - 25); return true;
         case 'ff': setIndex(index + 25); return true;
-        case 'enter': flip(); return true;
+        case 'enter':
+          if (opts.onEnter && items[index]) opts.onEnter(items[index]); else flip();
+          return true;
         case 'play': case 'playpause': if (items[index]) opts.onPlay && opts.onPlay(items[index], true); return true;
       }
       return false;

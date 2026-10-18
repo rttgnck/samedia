@@ -103,8 +103,17 @@ window.SM = window.SM || {};
   /** "1 movie", "3 movies" */
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
 
+  var RESUME_AFTER = 20; // seconds watched before a title counts as started (matches the server)
+
+  /** Where to resume a title, or 0 when it should start from the beginning. */
+  function resumeAt(item) {
+    if (!item || item.watched || !item.position || item.position < RESUME_AFTER) return 0;
+    if (item.duration && item.position > item.duration * 0.95) return 0;
+    return item.position;
+  }
+
   SM.util = {
-    plural: plural,
+    plural: plural, resumeAt: resumeAt,
     el: el, append: append, clear: clear, clock: clock, runtime: runtime, endsAt: endsAt,
     episodeCode: episodeCode, debounce: debounce, hue: hue, uid: uid, isTizen: isTizen,
   };

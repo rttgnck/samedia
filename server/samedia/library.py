@@ -233,7 +233,7 @@ def _next_for_show(eps: list[dict]) -> dict | None:
     """Resume the in-progress episode, else the first unwatched after the last watched one."""
     regular = [e for e in eps if e["season"] != 0]
     for e in regular:
-        if e["position"] > 60 and not e["watched"]:
+        if e["position"] >= RESUME_AFTER and not e["watched"]:
             return e
     last_watched = max((i for i, e in enumerate(regular) if e["watched"]), default=-1)
     for e in regular[last_watched + 1:]:
@@ -252,8 +252,11 @@ def next_episode(v: Viewer, item: dict) -> dict | None:
     return item_summary(row) if row else None
 
 
+RESUME_AFTER = 20   # seconds watched before a title counts as started (matches the TV)
+
+
 def continue_watching(v: Viewer, limit: int = 20) -> list[dict]:
-    rows = db.query(f"SELECT {ITEM_COLS} FROM {ITEM_FROM} WHERE p.position > 60 AND p.watched = 0 "
+    rows = db.query(f"SELECT {ITEM_COLS} FROM {ITEM_FROM} WHERE p.position >= {RESUME_AFTER} AND p.watched = 0 "
                     f"AND {_item_visible(v)} ORDER BY p.updated_at DESC LIMIT :limit", _p(v, limit=limit))
     return [item_summary(r) for r in rows]
 
@@ -297,6 +300,8 @@ def home(v: Viewer) -> dict:
         shelves.append({"id": "continue", "title": "Continue Watching", "items": cw})
     if nu := next_up(v):
         shelves.append({"id": "nextup", "title": "Next Up", "items": nu})
+    if bm := bookmarked_items(v, 30):
+        shelves.append({"id": "bookmarks", "title": "Bookmarks", "items": bm})
     if rm := movies(v, sort="added", limit=30):
         shelves.append({"id": "recent-movies", "title": "New Movies", "items": rm})
     if rs := shows(v, sort="added", limit=30):
@@ -324,6 +329,32 @@ def search(v: Viewer, q: str, limit: int = 40) -> dict:
         f"SELECT {ITEM_COLS} FROM {ITEM_FROM} WHERE i.kind='episode' AND i.title LIKE :like AND {_item_visible(v)} "
         "LIMIT :limit", params)]
     return {"movies": movies_, "shows": shows_, "episodes": eps}
+
+
+# ── bookmarks ───────────────────────────────────────────────────────
+
+def _bookmark_out(r: dict) -> dict:
+    return {"id": r["id"], "item_id": r["item_id"], "position": r["position"], "label": r.get("label")}
+
+
+def bookmarks_for(v: Viewer, item_id: str) -> list[dict]:
+    return [_bookmark_out(r) for r in db.query(
+        "SELECT * FROM bookmarks WHERE profile_id = ? AND item_id = ? ORDER BY position", (v.profile_id, item_id))]
+
+
+def bookmarked_items(v: Viewer, limit: int = 40) -> list[dict]:
+    """Titles with bookmarks, most recently bookmarked first, each with its bookmarks."""
+    rows = db.query(
+        f"SELECT {ITEM_COLS}, MAX(b.created_at) AS last_mark FROM bookmarks b JOIN items i ON i.id = b.item_id "
+        "LEFT JOIN progress p ON p.item_id = i.id AND p.profile_id = :pid LEFT JOIN shows s ON s.id = i.show_id "
+        f"WHERE b.profile_id = :pid AND {_item_visible(v)} GROUP BY i.id ORDER BY last_mark DESC LIMIT :limit",
+        _p(v, limit=limit))
+    out = []
+    for r in rows:
+        it = item_summary(r)
+        it["bookmarks"] = bookmarks_for(v, it["id"])
+        out.append(it)
+    return out
 
 
 # ── hidden titles ───────────────────────────────────────────────────

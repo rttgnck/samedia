@@ -89,6 +89,10 @@
       var model = '';
       try { model = webapis.productinfo.getRealModel() + ' · Tizen ' + tizen.systeminfo.getCapability('http://tizen.org/feature/platform.version'); } catch (e) { model = navigator.userAgent.slice(0, 60); }
       list.appendChild(rowItem('About', 'Samedia ' + SM.VERSION, null, model, 'about'));
+      var dsp = SM.display || {};
+      list.appendChild(rowItem('Display', (dsp.panel ? dsp.panel + ' panel' : (dsp.uhd ? '4K panel' : 'Panel unknown')),
+        null, 'App canvas ' + dsp.width + '×' + dsp.height + ' at ' + dsp.dpr + '× · UI zoom ' + (dsp.zoom || 1) +
+        ' · artwork ×' + (dsp.artScale || 1), 'display'));
 
       var again = focusK && list.querySelector('[data-k="' + focusK + '"]');
       SM.focus.claim(view, again || list.querySelector('.f'));

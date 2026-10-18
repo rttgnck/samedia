@@ -54,9 +54,11 @@
     });
   }
 
+  /** Artwork URL sized for the actual pixels on screen (the server snaps to its cached widths). */
   function art(path, width) {
     if (!path) return null;
-    return abs(path + '?w=' + (width || 400));
+    var scale = (SM.display && SM.display.artScale) || 1;
+    return abs(path + '?w=' + Math.min(1920, Math.round((width || 400) * scale)));
   }
 
   /** Probe a candidate server; resolves with its /info or rejects. */
@@ -139,6 +141,10 @@
     updateProfile: function (id, p) { return request('PUT', '/api/v1/profiles/' + id, p); },
     deleteProfile: function (id) { return request('DELETE', '/api/v1/profiles/' + id); },
     hidden: function () { return request('GET', '/api/v1/hidden'); },
+    bookmarks: function (itemId) { return request('GET', '/api/v1/items/' + itemId + '/bookmarks'); },
+    addBookmark: function (itemId, position) { return request('POST', '/api/v1/items/' + itemId + '/bookmarks', { position: position }); },
+    renameBookmark: function (id, label) { return request('PUT', '/api/v1/bookmarks/' + id, { label: label }); },
+    deleteBookmark: function (id) { return request('DELETE', '/api/v1/bookmarks/' + id); },
     hide: function (id) { return request('POST', '/api/v1/hidden', { id: id }); },
     unhide: function (id) { return request('DELETE', '/api/v1/hidden/' + id); },
     movies: function (q) { return request('GET', '/api/v1/movies' + (q || '')); },

@@ -180,7 +180,7 @@
     var tr = this.track;
     if (!tr) return;
     if (tr.format === 'text') {
-      var cues = activeCues(tr.cues, t + (tr.delay || 0));
+      var cues = activeCues(tr.cues, t + (tr.delay || 0)).filter(hasText);
       var key = cues.map(function (c) { return c.start; }).join(',');
       if (key === this.lastKey) return;
       this.lastKey = key;
@@ -213,6 +213,11 @@
   };
 
   function cueHtml(c) { return '<span class="cue">' + c.html + '</span>'; }
+
+  /** A cue with no visible text (only tags, spaces or &nbsp;) would draw an empty subtitle box. */
+  function hasText(c) {
+    return !!(c.html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;|\u00a0/gi, '').trim();
+  }
 
   /** Fetch a subtitle track from the server, waiting while it is still being extracted (HTTP 202). */
   function load(track, onWaiting) {

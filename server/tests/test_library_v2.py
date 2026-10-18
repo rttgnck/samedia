@@ -253,3 +253,34 @@ def test_rescan_reclassifies_movies_that_are_episodes(fresh_db, tmp_path, monkey
     assert (rows[0]["season"], rows[0]["episode"], rows[0]["title"]) == (1, 1, "First Contact")
     assert rows[0]["added_at"] == 123.0
     assert db.one("SELECT title FROM shows WHERE id=?", (rows[0]["show_id"],))["title"] == "Earth 2"
+
+
+def test_bookmarks_api(client):
+    add_movie("m1", "Alien", "/media/alien.mkv")
+    db.execute("UPDATE items SET duration=7000 WHERE id='m1'")
+    r = client.post("/api/v1/items/m1/bookmarks", json={"position": 1234.5}).json()
+    assert r["bookmark"]["position"] == 1234.5
+    # pressing twice in the same spot doesn't duplicate
+    r = client.post("/api/v1/items/m1/bookmarks", json={"position": 1235.0}).json()
+    assert len(r["bookmarks"]) == 1
+    client.post("/api/v1/items/m1/bookmarks", json={"position": 99999})            # clamped to the duration
+    marks = client.get("/api/v1/items/m1/bookmarks").json()["bookmarks"]
+    assert [m["position"] for m in marks] == [1234.5, 7000]
+    client.put(f"/api/v1/bookmarks/{marks[0]['id']}", json={"label": "Chestburster"})
+    assert client.get("/api/v1/items/m1").json()["bookmarks"][0]["label"] == "Chestburster"
+    # per profile
+    kid = client.post("/api/v1/profiles", json={"name": "Kids"}).json()
+    assert client.get("/api/v1/items/m1/bookmarks", headers={"X-Samedia-Profile": kid["id"]}).json()["bookmarks"] == []
+    shelf = next(s for s in client.get("/api/v1/home").json()["shelves"] if s["id"] == "bookmarks")
+    assert shelf["items"][0]["id"] == "m1" and len(shelf["items"][0]["bookmarks"]) == 2
+    client.delete(f"/api/v1/bookmarks/{marks[1]['id']}")
+    assert len(client.get("/api/v1/items/m1/bookmarks").json()["bookmarks"]) == 1
+    assert client.post("/api/v1/items/nope/bookmarks", json={"position": 1}).status_code == 404
+
+
+def test_continue_watching_after_20_seconds(fresh_db):
+    add_movie("m1", "A", "/media/a.mkv")
+    add_movie("m2", "B", "/media/b.mkv")
+    db.save_progress("default", "m1", 24, 7000)
+    db.save_progress("default", "m2", 12, 7000)
+    assert ids(library.continue_watching(Viewer())) == ["m1"]

@@ -57,7 +57,7 @@
   function show(item, opts) {
     opts = opts || {};
     var isVideo = item.kind === 'movie' || item.kind === 'episode';
-    var resumable = isVideo && item.position > 30 && !item.watched;
+    var resumable = isVideo && !!SM.util.resumeAt(item);
     var options = [];
     if (opts.hidden) {
       options.push({ label: 'Unhide', sub: 'Show it again for ' + profileName(), action: function () { unhide(item); } });
@@ -69,6 +69,7 @@
       options.push({ label: item.watched ? 'Mark as unwatched' : 'Mark as watched',
                      action: function () { setWatched(item, !item.watched); } });
       options.push({ label: 'Details', action: function () { SM.router.push('detail', { id: item.id }); } });
+      options.push({ label: 'Bookmarks…', sub: 'Play from a saved moment', action: function () { bookmarksMenu(item); } });
       if (item.collection_id) {
         options.push({ label: 'Open collection', action: function () { SM.openItem({ kind: 'collection', id: item.collection_id }); } });
       }
@@ -93,5 +94,20 @@
     ui.menu(title, options, { side: true });
   }
 
-  SM.context = { open: open, show: show, itemFromFocus: itemFromFocus };
+  /** Bookmarks of a title: pick one to play from there. */
+  function bookmarksMenu(item) {
+    SM.api.bookmarks(item.id).then(function (r) {
+      if (!r.bookmarks.length) {
+        ui.toast('No bookmarks yet — while watching, press the blue button to bookmark a moment', 4500);
+        return;
+      }
+      ui.menu('Bookmarks · ' + item.title, r.bookmarks.map(function (b) {
+        return { label: SM.util.clock(b.position) + (b.label ? '  ·  ' + b.label : ''),
+                 action: function () { SM.player.play(item, { startAt: b.position }); } };
+      }), { side: true });
+    }, function (err) { ui.toast(err.message); });
+  }
+
+  SM.context = {
+    bookmarksMenu: bookmarksMenu, open: open, show: show, itemFromFocus: itemFromFocus };
 })();

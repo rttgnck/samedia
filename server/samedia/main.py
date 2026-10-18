@@ -65,7 +65,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks"]}
 
 
 @app.post("/api/v1/auth")
@@ -140,6 +140,7 @@ def item(item_id: str, v: library.Viewer = Me):
     out["audio_tracks"] = playback.decide(row, None)["audio_tracks"]
     out["subtitle_tracks"] = playback.subtitle_tracks(row)
     out["next"] = library.next_episode(v, row)
+    out["bookmarks"] = library.bookmarks_for(v, item_id)
     out["file"] = Path(row["path"]).name
     return out
 
@@ -218,6 +219,65 @@ def delete_profile(profile_id: str):
     db.execute("DELETE FROM hidden WHERE profile_id=?", (profile_id,))
     db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
     return {"ok": True}
+
+
+# ── bookmarks ───────────────────────────────────────────────────────
+
+class BookmarkBody(BaseModel):
+    position: float
+    label: str | None = None
+
+
+@app.get("/api/v1/items/{item_id}/bookmarks", dependencies=[api])
+def list_bookmarks(item_id: str, v: library.Viewer = Me):
+    return {"bookmarks": library.bookmarks_for(v, item_id)}
+
+
+@app.post("/api/v1/items/{item_id}/bookmarks", dependencies=[api])
+def add_bookmark(item_id: str, body: BookmarkBody, v: library.Viewer = Me):
+    row = db.one("SELECT id, duration FROM items WHERE id=?", (item_id,))
+    if not row:
+        raise HTTPException(404, "Item not found")
+    position = max(0.0, body.position)
+    if row["duration"]:
+        position = min(position, row["duration"])
+    # One bookmark per few seconds: pressing twice doesn't make duplicates
+    near = db.one("SELECT id FROM bookmarks WHERE profile_id=? AND item_id=? AND ABS(position - ?) < 3",
+                  (v.profile_id, item_id, position))
+    if near:
+        return {"bookmark": library._bookmark_out(db.one("SELECT * FROM bookmarks WHERE id=?", (near["id"],))),
+                "bookmarks": library.bookmarks_for(v, item_id)}
+    if db.one("SELECT COUNT(*) AS n FROM bookmarks WHERE profile_id=? AND item_id=?", (v.profile_id, item_id))["n"] >= 100:
+        raise HTTPException(400, "Too many bookmarks for this title")
+    bid = uuid.uuid4().hex[:12]
+    label = (body.label or "").strip()[:80] or None
+    db.execute("INSERT INTO bookmarks (id, profile_id, item_id, position, label, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+               (bid, v.profile_id, item_id, position, label, time.time()))
+    return {"bookmark": library._bookmark_out(db.one("SELECT * FROM bookmarks WHERE id=?", (bid,))),
+            "bookmarks": library.bookmarks_for(v, item_id)}
+
+
+class BookmarkUpdate(BaseModel):
+    label: str | None = None
+
+
+@app.put("/api/v1/bookmarks/{bookmark_id}", dependencies=[api])
+def rename_bookmark(bookmark_id: str, body: BookmarkUpdate, v: library.Viewer = Me):
+    if not db.one("SELECT id FROM bookmarks WHERE id=? AND profile_id=?", (bookmark_id, v.profile_id)):
+        raise HTTPException(404, "Bookmark not found")
+    db.execute("UPDATE bookmarks SET label=? WHERE id=?", ((body.label or "").strip()[:80] or None, bookmark_id))
+    return library._bookmark_out(db.one("SELECT * FROM bookmarks WHERE id=?", (bookmark_id,)))
+
+
+@app.delete("/api/v1/bookmarks/{bookmark_id}", dependencies=[api])
+def delete_bookmark(bookmark_id: str, v: library.Viewer = Me):
+    db.execute("DELETE FROM bookmarks WHERE id=? AND profile_id=?", (bookmark_id, v.profile_id))
+    return {"ok": True}
+
+
+@app.get("/api/v1/bookmarks", dependencies=[api])
+def all_bookmarks(v: library.Viewer = Me):
+    return {"items": library.bookmarked_items(v, 200)}
 
 
 # ── hidden titles ───────────────────────────────────────────────────

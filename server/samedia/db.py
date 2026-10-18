@@ -134,7 +134,23 @@ def _migrate_1(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_progress_updated ON progress(profile_id, updated_at)")
 
 
-MIGRATIONS = [_migrate_1]
+def _migrate_2(conn: sqlite3.Connection) -> None:
+    """Bookmarks: favourite moments in a video, per profile."""
+    for stmt in filter(str.strip, """
+        CREATE TABLE IF NOT EXISTS bookmarks (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+            position REAL NOT NULL,
+            label TEXT,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_bookmarks_item ON bookmarks(profile_id, item_id, position)
+    """.split(";")):
+        conn.execute(stmt)
+
+
+MIGRATIONS = [_migrate_1, _migrate_2]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

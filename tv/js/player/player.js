@@ -9,6 +9,10 @@
 
   var el = SM.util.el, ui = SM.ui, S = SM.settings;
   var PROGRESS_EVERY = 10; // seconds between progress reports
+  // Scrubbing speeds up while you keep pressing: seconds per press
+  var SCRUB_STEPS = [10, 10, 30, 30, 60, 60, 120, 120, 300];
+  var PICTURE = [['fit', 'Fit', 'Whole picture, black bars if needed'], ['fill', 'Fill', 'Fill the screen, crops the edges'],
+                 ['stretch', 'Stretch', 'Fill the screen, distorts the picture']];
 
   function play(item, opts) {
     if (item.kind === 'episode' && item.next === undefined) {
@@ -61,18 +65,27 @@
     var titleEl = el('div.osd-title');
     var subtitleEl = el('div.osd-sub');
     var timeEl = el('span.osd-time'), remainEl = el('span.osd-remain'), endsEl = el('span.osd-ends');
-    var fill = el('i.fill'), scrubMark = el('i.scrub'), bar = el('div.osd-bar.f', [fill, scrubMark]);
+    var fill = el('i.fill'), scrubMark = el('i.scrub'), ticks = el('div.osd-ticks');
+    var bubble = el('div.osd-bubble');
+    var bar = el('div.osd-bar.f', [fill, ticks, scrubMark, bubble]);
+    var clockEl = el('div.osd-clock');
     var playBtn = ui.button(null, 'pause', togglePlay, 'round autofocus');
     var audioBtn = ui.button('Audio', 'audio', chooseAudio);
     var subsBtn = ui.button('Subtitles', 'subs', chooseSubs);
+    var markBtn = ui.button('Bookmark', 'bookmark', addBookmark);
+    var marksBtn = ui.button('Bookmarks', 'bookmarks', chooseBookmark);
+    var pictureBtn = ui.button('Fit', 'aspect', choosePicture);
+    var episodesBtn = ui.button('Episodes', 'list', chooseEpisode);
     var infoBtn = ui.button(null, 'info', toggleInfo, 'round');
     var nextBtn = ui.button('Next episode', 'next', function () { playNext(); });
     var controls = el('div.osd-controls', { 'data-group': '' }, [
+      ui.button(null, 'restart', function () { seekTo(0); showOsd(); }, 'round'),
       ui.button(null, 'back10', function () { seekBy(-10); }, 'round'), playBtn,
-      ui.button(null, 'fwd30', function () { seekBy(30); }, 'round'), audioBtn, subsBtn, infoBtn, nextBtn,
+      ui.button(null, 'fwd30', function () { seekBy(30); }, 'round'),
+      audioBtn, subsBtn, markBtn, marksBtn, pictureBtn, episodesBtn, nextBtn, infoBtn,
     ]);
     var osd = el('div.osd', [
-      el('div.osd-top', [titleEl, subtitleEl]),
+      el('div.osd-top', [el('div.osd-top-row', [el('div', [titleEl, subtitleEl]), clockEl])]),
       el('div.osd-bottom', [el('div.osd-bar-wrap', { 'data-group': '' }, [bar]),
         el('div.osd-times', [timeEl, el('span.spacer'), endsEl, remainEl]), controls]),
     ]);
@@ -85,6 +98,9 @@
     titleEl.textContent = isEp ? (item.show_title || '') : item.title;
     subtitleEl.textContent = isEp ? SM.util.episodeCode(item) + ' · ' + item.title : (item.year || '');
     if (!item.next) nextBtn.classList.add('hidden');
+    if (!isEp) episodesBtn.classList.add('hidden');
+    var bookmarks = item.bookmarks || [];
+    var scrubStreak = 0, lastScrubAt = 0;
 
     // ── time ──
     function decoderTime() {
@@ -111,6 +127,7 @@
         var first = !decision;
         decision = d;
         duration = d.duration || duration;
+        renderTicks();
         if (first) {
           (d.warnings || []).forEach(function (w) { ui.toast(w, 5000); });
           initSubtitles();
@@ -119,7 +136,7 @@
         lastTime = 0;
         var url = SM.api.abs(d.url);
         var uhd = d.video && d.video.width > 1920;
-        return backend.open(url, { uhd: uhd, bufferSec: d.seekable ? 0 : 6 }).then(function () {
+        return backend.open(url, { uhd: uhd, bufferSec: d.seekable ? 0 : 6, displayMode: S.get('pictureMode') }).then(function () {
           if (destroyed) return;
           var after = Promise.resolve();
           if (d.seekable && startSec > 1) after = backend.seek(startSec);
@@ -215,18 +232,120 @@
       subRenderer && subRenderer.setTrack(subRenderer.track); // force redraw
     }
 
-    /** Accumulate presses (hold to go faster), commit after a short pause. */
+    /** Accumulate presses, commit after a short pause. */
     function seekBy(delta) {
       if (scrubTarget === null) scrubTarget = now();
       scrubTarget = Math.max(0, Math.min(duration || Infinity, scrubTarget + delta));
       showOsd();
       renderBar();
       clearTimeout(scrubTimer);
-      scrubTimer = setTimeout(function () {
-        var t = scrubTarget;
-        scrubTarget = null;
-        seekTo(t);
-      }, 750);
+      scrubTimer = setTimeout(commitScrub, 900);
+    }
+
+    /** Left/right on the time bar: the longer you keep pressing, the bigger the jumps. */
+    function scrub(dir) {
+      var t = Date.now();
+      scrubStreak = t - lastScrubAt < 700 ? scrubStreak + 1 : 0;
+      lastScrubAt = t;
+      seekBy(dir * SCRUB_STEPS[Math.min(scrubStreak, SCRUB_STEPS.length - 1)]);
+    }
+
+    function commitScrub() {
+      clearTimeout(scrubTimer);
+      if (scrubTarget === null) return;
+      var t = scrubTarget;
+      scrubTarget = null;
+      scrubStreak = 0;
+      seekTo(t);
+    }
+
+    function cancelScrub() {
+      clearTimeout(scrubTimer);
+      scrubTarget = null;
+      scrubStreak = 0;
+      renderBar();
+    }
+
+    // ── bookmarks ──
+    function renderTicks() {
+      SM.util.clear(ticks);
+      if (!duration) return;
+      bookmarks.forEach(function (b) {
+        ticks.appendChild(el('i', { style: { left: Math.min(100, 100 * b.position / duration) + '%' } }));
+      });
+      marksBtn.classList.toggle('hidden', !bookmarks.length);
+      marksBtn.lastChild.textContent = 'Bookmarks (' + bookmarks.length + ')';
+    }
+
+    function bookmarkLabel(b) { return SM.util.clock(b.position) + (b.label ? '  ·  ' + b.label : ''); }
+
+    function addBookmark() {
+      var pos = scrubTarget !== null ? scrubTarget : now();
+      SM.api.addBookmark(item.id, pos).then(function (r) {
+        bookmarks = r.bookmarks;
+        renderTicks();
+        ui.toast('Bookmarked ' + SM.util.clock(r.bookmark.position) + ' — find it under Bookmarks', 3500);
+      }, function (err) { ui.toast('Could not bookmark: ' + err.message); });
+    }
+
+    function chooseBookmark() {
+      if (!bookmarks.length) { ui.toast('No bookmarks yet — press the blue button (or Bookmark) to add one'); return; }
+      var opts = bookmarks.map(function (b) {
+        return { label: bookmarkLabel(b), action: function () { cancelScrub(); seekTo(b.position); showOsd(); } };
+      });
+      opts.push({ label: 'Name a bookmark…', action: function () { pickBookmark('Name which bookmark?', renameBookmark); } });
+      opts.push({ label: 'Delete a bookmark…', action: function () { pickBookmark('Delete which bookmark?', deleteBookmark); } });
+      ui.menu('Bookmarks', opts, { side: true });
+    }
+
+    function pickBookmark(title, fn) {
+      ui.menu(title, bookmarks.map(function (b) { return { label: bookmarkLabel(b), action: function () { fn(b); } }; }), { side: true });
+    }
+
+    function renameBookmark(b) {
+      ui.prompt('Name for ' + SM.util.clock(b.position), b.label || '', { capitalize: true, max: 60 }).then(function (label) {
+        if (label === null) return;
+        SM.api.renameBookmark(b.id, label).then(function (u) { b.label = u.label; }, function (err) { ui.toast(err.message); });
+      });
+    }
+
+    function deleteBookmark(b) {
+      SM.api.deleteBookmark(b.id).then(function () {
+        bookmarks = bookmarks.filter(function (x) { return x.id !== b.id; });
+        renderTicks();
+        ui.toast('Bookmark removed');
+      }, function (err) { ui.toast(err.message); });
+    }
+
+    // ── picture / episodes ──
+    function pictureLabel() {
+      var m = PICTURE.filter(function (p) { return p[0] === (S.get('pictureMode') || 'fit'); })[0] || PICTURE[0];
+      return m[1];
+    }
+
+    function choosePicture() {
+      ui.menu('Picture', PICTURE.map(function (p) {
+        return { label: p[1], sub: p[2], selected: p[0] === (S.get('pictureMode') || 'fit'), action: function () {
+          S.set('pictureMode', p[0]);
+          if (backend) backend.setDisplayMode(p[0]);
+          pictureBtn.lastChild.textContent = p[1];
+        } };
+      }), { side: true });
+    }
+
+    function chooseEpisode() {
+      SM.api.show(item.show_id).then(function (show) {
+        var eps = show.episodes.filter(function (e) { return e.season === item.season; });
+        ui.menu(show.title + ' · Season ' + item.season, eps.map(function (e) {
+          return { label: SM.util.episodeCode(e) + '  ' + e.title, selected: e.id === item.id,
+                   sub: e.watched ? 'Watched' : (SM.util.resumeAt(e) ? 'Resume at ' + SM.util.clock(e.position) : null),
+                   action: function () {
+                     if (e.id === item.id) return;
+                     reportProgress(true);
+                     SM.api.item(e.id).then(function (full) { SM.router.pop(); play(full, { resume: true }); });
+                   } };
+        }), { side: true });
+      }, function (err) { ui.toast(err.message); });
     }
 
     function chooseAudio() {
@@ -320,8 +439,13 @@
       var t = scrubTarget !== null ? scrubTarget : now();
       var pct = duration ? Math.min(100, 100 * now() / duration) : 0;
       fill.style.width = pct + '%';
-      scrubMark.style.left = (duration ? Math.min(100, 100 * t / duration) : 0) + '%';
-      scrubMark.style.display = scrubTarget !== null ? 'block' : 'none';
+      var at = (duration ? Math.min(100, 100 * t / duration) : 0) + '%';
+      scrubMark.style.left = at;
+      scrubMark.style.display = scrubTarget !== null || SM.focus.get() === bar ? 'block' : 'none';
+      bubble.style.left = at;
+      bubble.textContent = SM.util.clock(t);
+      bubble.classList.toggle('on', scrubTarget !== null);
+      clockEl.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       timeEl.textContent = SM.util.clock(t);
       remainEl.textContent = duration ? '−' + SM.util.clock(duration - t) : '';
       endsEl.textContent = duration ? SM.util.endsAt(duration - t) : '';
@@ -403,6 +527,7 @@
       switch (action) {
         case 'back':
           if (upNextOpen) { SM.router.pop(); return true; }
+          if (scrubTarget !== null) { cancelScrub(); return true; }
           if (osdVisible()) { root.classList.remove('osd-visible'); return true; }
           return false; // router pops the player
         case 'play': if (!playing) togglePlay(); return true;
@@ -414,19 +539,23 @@
         case 'info': case 'green': toggleInfo(); return true;
         case 'red': chooseAudio(); return true;
         case 'yellow': chooseSubs(); return true;
+        case 'blue': addBookmark(); return true;
         case 'chup': if (item.next) playNext(); return true;
       }
       if (upNextOpen) return false;
       if (!osdVisible()) {
-        if (action === 'left') { seekBy(-10); return true; }
-        if (action === 'right') { seekBy(30); return true; }
+        if (action === 'left') { scrub(-1); return true; }
+        if (action === 'right') { scrub(1); return true; }
         if (action === 'enter') { togglePlay(); return true; }
-        if (action === 'up' || action === 'down') { showOsd(); return true; }
+        // Up: straight to the time bar for scrubbing; Down: the buttons
+        if (action === 'up') { showOsd(); SM.focus.set(bar, { noScroll: true }); renderBar(); return true; }
+        if (action === 'down') { showOsd(); SM.focus.set(playBtn, { noScroll: true }); return true; }
       } else {
         showOsd();
-        if (SM.focus.get() === bar && (action === 'left' || action === 'right')) {
-          seekBy(action === 'left' ? -10 : 30);
-          return true;
+        if (SM.focus.get() === bar) {
+          if (action === 'left' || action === 'right') { scrub(action === 'left' ? -1 : 1); return true; }
+          if (action === 'enter') { if (scrubTarget !== null) commitScrub(); else togglePlay(); return true; }
+          if (action === 'up') return true;
         }
       }
       return false;
@@ -469,7 +598,13 @@
     document.addEventListener('visibilitychange', onVisibility);
     tickTimer = setInterval(tick, 200);
 
-    var resumeAt = opts.resume && item.position > 30 ? item.position : 0;
+    var resumeAt = opts.resume ? SM.util.resumeAt(item) : 0;
+    if (opts.startAt !== undefined) resumeAt = opts.startAt;   // e.g. a bookmark
+    pictureBtn.lastChild.textContent = pictureLabel();
+    renderTicks();
+    if (!item.bookmarks) {
+      SM.api.bookmarks(item.id).then(function (r) { bookmarks = r.bookmarks; renderTicks(); }, function () {});
+    }
     start(resumeAt, opts.audioIndex === null ? undefined : opts.audioIndex);
     showOsd();
     return view;

@@ -86,7 +86,7 @@
     function render() {
       var focusedLabel = SM.focus.get() && SM.focus.get().dataset ? SM.focus.get().dataset.k : null;
       var isEp = item.kind === 'episode';
-      var resumable = item.position > 30 && item.duration && item.position < item.duration * 0.95;
+      var resumable = !!SM.util.resumeAt(item);
       var buttons = [];
       var playBtn = resumable
         ? ui.button('Resume ' + SM.util.clock(item.position), 'play', function () { play(true); }, 'primary autofocus')
@@ -111,6 +111,13 @@
         buttons.push(showBtn);
       }
       // Same menu as holding OK: hide, collection, watched...
+      if (item.bookmarks && item.bookmarks.length) {
+        var marksBtn = ui.button(SM.util.plural(item.bookmarks.length, 'Bookmark'), 'bookmarks', function () {
+          SM.context.bookmarksMenu(item);
+        });
+        marksBtn.dataset.k = 'bookmarks';
+        buttons.push(marksBtn);
+      }
       var moreBtn = ui.button('More', 'info', function () { SM.context.open(item); });
       moreBtn.dataset.k = 'more';
       buttons.push(moreBtn);
