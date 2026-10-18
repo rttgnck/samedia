@@ -66,7 +66,13 @@
     var subtitleEl = el('div.osd-sub');
     var timeEl = el('span.osd-time'), remainEl = el('span.osd-remain'), endsEl = el('span.osd-ends');
     var fill = el('i.fill'), scrubMark = el('i.scrub'), ticks = el('div.osd-ticks');
-    var bubble = el('div.osd-bubble');
+    var bubbleImg = el('img.osd-bubble-img', { alt: '' });
+    var bubbleTime = el('span');
+    var bubble = el('div.osd-bubble', [bubbleImg, bubbleTime]);
+    var hasFrames = (SM.serverFeatures || []).indexOf('frames') !== -1;
+    var frameTimer = null, frameFor = null;
+    bubbleImg.onload = function () { bubble.classList.add('has-frame'); };
+    bubbleImg.onerror = function () { bubble.classList.remove('has-frame'); };
     var bar = el('div.osd-bar.f', [fill, ticks, scrubMark, bubble]);
     var clockEl = el('div.osd-clock');
     var playBtn = ui.button(null, 'pause', togglePlay, 'round autofocus');
@@ -126,6 +132,8 @@
         if (destroyed) return;
         var first = !decision;
         decision = d;
+        SM.devlog.log('player.decision', { mode: d.mode, seekable: d.seekable, offset: d.start_offset, reasons: d.reasons,
+                                          video: d.video, startSec: startSec });
         duration = d.duration || duration;
         renderTicks();
         if (first) {
@@ -220,6 +228,7 @@
     }
 
     function seekTo(target) {
+      SM.devlog.log('player.seekTo', { target: target, now: now(), seekable: decision && decision.seekable, mode: decision && decision.mode });
       target = Math.max(0, Math.min(duration ? duration - 3 : target, target));
       if (!decision) return;
       if (decision.seekable) {
@@ -264,6 +273,18 @@
       scrubTarget = null;
       scrubStreak = 0;
       renderBar();
+    }
+
+    /** Preview still for the scrub target (the server snaps to 10 s; debounced while pressing). */
+    function requestFrame(t) {
+      if (!hasFrames) return;
+      var snapped = Math.max(0, Math.round(t / 10) * 10);
+      if (snapped === frameFor) return;
+      clearTimeout(frameTimer);
+      frameTimer = setTimeout(function () {
+        frameFor = snapped;
+        bubbleImg.src = SM.api.abs('/api/v1/items/' + item.id + '/frame?t=' + snapped + '&w=320');
+      }, 180);
     }
 
     // ── bookmarks ──
@@ -443,8 +464,10 @@
       scrubMark.style.left = at;
       scrubMark.style.display = scrubTarget !== null || SM.focus.get() === bar ? 'block' : 'none';
       bubble.style.left = at;
-      bubble.textContent = SM.util.clock(t);
+      bubbleTime.textContent = SM.util.clock(t);
       bubble.classList.toggle('on', scrubTarget !== null);
+      if (scrubTarget !== null) requestFrame(scrubTarget);
+      else bubble.classList.remove('has-frame');
       clockEl.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       timeEl.textContent = SM.util.clock(t);
       remainEl.textContent = duration ? '−' + SM.util.clock(duration - t) : '';
@@ -452,6 +475,7 @@
     }
 
     function setBuffering(b) {
+      if (b !== buffering) SM.devlog.log('player.buffering', b);
       buffering = b;
       spinner.classList.toggle('on', b);
     }
@@ -512,8 +536,22 @@
       });
     }
 
+    var snapEvery = 0, lastTickTime = -1;
     function tick() {
       if (!backend || destroyed) return;
+      if (buffering && playing) {
+        // Some TVs never send "buffering complete": the clock advancing is proof enough.
+        var bt = backend.time();
+        if (lastTickTime >= 0 && bt > lastTickTime + 0.15) setBuffering(false);
+        lastTickTime = bt;
+      } else {
+        lastTickTime = -1;
+      }
+      if (SM.devlog.on && ++snapEvery % 25 === 0) {   // every ~5 s
+        SM.devlog.log('player.snapshot', { t: now(), playing: playing, buffering: buffering,
+          state: backend.state ? backend.state() : null, osd: osdVisible(),
+          center: SM.devlog.at(960, 540), focus: SM.devlog.describe(SM.focus.get()) });
+      }
       var t = now();
       if (subRenderer) subRenderer.update(t);
       if (osdVisible()) renderBar();
@@ -577,6 +615,12 @@
     }
 
     view.destroy = function () {
+      SM.devlog.log('player.destroy', { t: now() });
+      setTimeout(function () {
+        SM.devlog.log('after-player', { view: (SM.router.top() || {}).name, focus: SM.devlog.describe(SM.focus.get()),
+          connected: !!(SM.focus.get() && SM.focus.get().isConnected), layers: SM.focus.hasLayer(),
+          active: SM.devlog.describe(document.activeElement), center: SM.devlog.at(960, 540) });
+      }, 2500);
       destroyed = true;
       reportProgress(true);
       clearInterval(tickTimer);

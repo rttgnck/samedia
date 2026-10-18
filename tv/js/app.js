@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.3.0';
+  SM.VERSION = '0.3.1';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -80,6 +80,10 @@
 
   function onKey(e) {
     var action = SM.keys.action(e);
+    if (SM.devlog.on) {
+      SM.devlog.log('key', { code: e.keyCode, action: action, repeat: e.repeat, view: (SM.router.top() || {}).name,
+                             focus: SM.devlog.describe(SM.focus.get()), layers: SM.focus.hasLayer() });
+    }
     if (!action) return;
     e.preventDefault();
     if (action === 'enter') {
@@ -128,6 +132,18 @@
 
     if (action === 'exit') { exitApp(); return; }
 
+    // Up/down inside the rail walks the rail: the open rail overlaps the content, so geometric
+    // focus movement could otherwise jump into the page (e.g. the search keyboard).
+    var cur = SM.focus.get();
+    if ((action === 'up' || action === 'down') && cur && nav.contains(cur) && !modal) {
+      var items = Array.prototype.filter.call(nav.querySelectorAll('.nav-item.f'), function (n) {
+        return !n.classList.contains('hidden');
+      });
+      var i = items.indexOf(cur) + (action === 'down' ? 1 : -1);
+      if (i >= 0 && i < items.length) SM.focus.set(items[i]);
+      return;
+    }
+
     switch (action) {
       case 'left': case 'right': case 'up': case 'down':
         if (!SM.focus.move(action) && action === 'left' && !modal && top && !top.fullscreen) {
@@ -173,6 +189,7 @@
 
   /** After connecting: pick who's watching when there's more than one profile. */
   function start(info) {
+    SM.serverFeatures = (info && info.features) || [];
     if (!info || (info.features || []).indexOf('profiles') === -1) { goHome(); return; }
     SM.api.profiles().then(function (r) {
       var list = r.profiles || [];

@@ -52,6 +52,7 @@
   }
 
   function push(name, params) {
+    SM.devlog.log('router.push', name);
     closeModals();
     var prev = top();
     if (prev) hide(prev);
@@ -78,6 +79,7 @@
 
   function pop() {
     if (stack.length <= 1) return false;
+    SM.devlog.log('router.pop', top().name + ' -> ' + stack[stack.length - 2].name);
     closeModals();
     destroy(stack.pop());
     show(top(), true);
@@ -86,6 +88,7 @@
 
   /** Replace the whole stack (used by the nav rail to switch sections). */
   function reset(name, params) {
+    SM.devlog.log('router.reset', name);
     closeModals();
     while (stack.length) destroy(stack.pop());
     return push(name, params);

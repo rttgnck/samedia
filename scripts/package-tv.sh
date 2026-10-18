@@ -10,7 +10,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/dist/tv"
-TV_IP="${1:-}"
+# Options: --devlog <url>  send the app's diagnostic log to <url> (development builds only)
+DEVLOG=""
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --devlog) DEVLOG="${2:?--devlog needs a URL}"; shift 2 ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+TV_IP="${ARGS[0]:-}"
 PROFILE="${TIZEN_PROFILE:-}"
 
 if [ -n "$TV_IP" ] && ! [[ "$TV_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
@@ -28,6 +37,20 @@ command -v tizen >/dev/null || { echo "tizen CLI not found. Install Tizen Studio
 
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 cp -R "$ROOT/tv/config.xml" "$ROOT/tv/index.html" "$ROOT/tv/icon.png" "$ROOT/tv/css" "$ROOT/tv/js" "$BUILD/"
+
+if [ -n "$DEVLOG" ]; then
+  # Diagnostic build: define SM_DEV before any app script runs
+  printf 'window.SM_DEV = { logUrl: %s };\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$DEVLOG")" > "$BUILD/js/dev-config.js"
+  python3 - "$BUILD/index.html" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace('<script src="js/core/util.js"></script>',
+              '<script src="js/dev-config.js"></script>\n  <script src="js/core/util.js"></script>', 1)
+open(p, "w").write(s)
+PY
+  echo "→ Diagnostic build: logging to $DEVLOG"
+fi
 
 echo "→ Packaging"
 if [ -n "$PROFILE" ]; then

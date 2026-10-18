@@ -304,6 +304,10 @@ video.av-object { background: #000; object-fit: contain; }
   background: rgba(255, 255, 255, .95); color: #0a0c10; font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums;
   opacity: 0; transition: opacity .15s; white-space: nowrap; }
 .osd-bubble.on { opacity: 1; }
+.osd-bubble { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.osd-bubble-img { display: none; width: 320px; border-radius: 8px; background: #000; }
+.osd-bubble.has-frame { padding: 8px 8px 6px; }
+.osd-bubble.has-frame .osd-bubble-img { display: block; }
 .osd-times { display: flex; gap: 26px; margin: 16px 0 26px; font-size: 24px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .osd-times .osd-time { color: var(--text); font-weight: 600; }
 .osd-times .spacer { flex: 1; }

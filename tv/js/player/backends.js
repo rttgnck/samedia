@@ -66,14 +66,18 @@
             av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', opts.bufferSec);
           } catch (e) { /* optional */ }
         }
+        var timeEvents = 0;
         av.setListener({
-          onbufferingstart: function () { self.emit('buffering', true); },
+          onbufferingstart: function () { SM.devlog.log('av.bufferingstart'); self.emit('buffering', true); },
           onbufferingprogress: function () {},
-          onbufferingcomplete: function () { self.emit('buffering', false); },
-          oncurrentplaytime: function (ms) { self._time = ms / 1000; self.emit('time', self._time); },
-          onstreamcompleted: function () { self.emit('ended'); },
-          onerror: function (type) { self.emit('error', new Error(String(type))); },
-          onevent: function () {},
+          onbufferingcomplete: function () { SM.devlog.log('av.bufferingcomplete'); self.emit('buffering', false); },
+          oncurrentplaytime: function (ms) {
+            if (++timeEvents === 1) SM.devlog.log('av.firsttime', ms);
+            self._time = ms / 1000; self.emit('time', self._time);
+          },
+          onstreamcompleted: function () { SM.devlog.log('av.completed'); self.emit('ended'); },
+          onerror: function (type) { SM.devlog.log('av.error', String(type)); self.emit('error', new Error(String(type))); },
+          onevent: function (type, data) { SM.devlog.log('av.event', { type: String(type), data: String(data).slice(0, 200) }); },
           onsubtitlechange: function () {},
           ondrmevent: function () {},
         });
@@ -102,11 +106,26 @@
 
   AVPlayBackend.prototype.seek = function (sec) {
     var av = this.av, self = this;
+    var before = this.time(), state = this.state();
+    SM.devlog.log('av.seek', { to: sec, from: before, state: state });
     return new Promise(function (resolve, reject) {
       try {
-        av.seekTo(Math.max(0, Math.floor(sec * 1000)), function () { self._time = sec; resolve(); }, function (e) { reject(e); });
-      } catch (e) { reject(e); }
+        av.seekTo(Math.max(0, Math.floor(sec * 1000)), function () {
+          SM.devlog.log('av.seek.ok', { to: sec, now: self.time(), state: self.state() });
+          self._time = sec; resolve();
+        }, function (e) {
+          SM.devlog.log('av.seek.fail', { to: sec, err: e && (e.name || e.message || String(e)), state: self.state() });
+          reject(e);
+        });
+      } catch (e) {
+        SM.devlog.log('av.seek.throw', { to: sec, err: e && (e.name || e.message || String(e)), state: self.state() });
+        reject(e);
+      }
     });
+  };
+
+  AVPlayBackend.prototype.state = function () {
+    try { return this.av.getState(); } catch (e) { return 'unknown'; }
   };
 
   AVPlayBackend.prototype.time = function () {
@@ -125,6 +144,7 @@
   };
 
   AVPlayBackend.prototype._closeQuiet = function () {
+    SM.devlog.log('av.close', this.state());
     try {
       var st = this.av.getState();
       if (st !== 'NONE' && st !== 'IDLE') this.av.stop();

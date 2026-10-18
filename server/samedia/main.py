@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import art, db, library, playback, subtitles
+from . import art, db, frames, library, playback, subtitles
 from .config import API_VERSION, EDITABLE, VERSION, apply_overrides, config
 from .scanner import scanner
 
@@ -65,7 +65,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames"]}
 
 
 @app.post("/api/v1/auth")
@@ -472,6 +472,19 @@ async def subtitle(item_id: str, track: str, wait: float = Query(25, le=60)):
             return JSONResponse({"status": "extracting"}, status_code=202)
     media_type = "application/octet-stream" if stream["format"] == "pgs" else "text/vtt; charset=utf-8"
     return FileResponse(path, media_type=media_type)
+
+
+# ── scrubbing preview frames ────────────────────────────────────────
+
+@app.get("/api/v1/items/{item_id}/frame", dependencies=[api])
+async def preview_frame(item_id: str, t: float = Query(..., ge=0), w: int = Query(320, ge=100, le=480)):
+    row = library.get_item(item_id)
+    if not row or not row.get("media"):
+        raise HTTPException(404)
+    path = await run_in_threadpool(frames.frame, item_id, row["path"], t, w, row.get("duration"))
+    if path is None:
+        raise HTTPException(404, "No frame")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"})
 
 
 # ── artwork ─────────────────────────────────────────────────────────

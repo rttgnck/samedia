@@ -284,3 +284,24 @@ def test_continue_watching_after_20_seconds(fresh_db):
     db.save_progress("default", "m1", 24, 7000)
     db.save_progress("default", "m2", 12, 7000)
     assert ids(library.continue_watching(Viewer())) == ["m1"]
+
+
+def test_preview_frame_grid():
+    from samedia import frames
+    assert frames.snap(123, 7000) == 120
+    assert frames.snap(126, 7000) == 130
+    assert frames.snap(9999, 600) == 599
+    assert frames.snap(-5, None) == 0
+
+
+@pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="needs ffmpeg")
+def test_preview_frame_endpoint(client, tmp_path):
+    import subprocess
+    f = tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=10", "-t", "30",
+                    "-c:v", "libx264", "-y", str(f)], check=True)
+    add_movie("m1", "Clip", str(f))
+    db.execute("UPDATE items SET duration=30, media=? WHERE id='m1'", ('{"container": "mp4"}',))
+    r = client.get("/api/v1/items/m1/frame", params={"t": 12, "w": 240})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg" and len(r.content) > 500
+    assert client.get("/api/v1/items/nope/frame", params={"t": 1}).status_code == 404
