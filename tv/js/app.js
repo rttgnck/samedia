@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.4.7';
+  SM.VERSION = '0.4.8';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -201,6 +201,7 @@
   /** After connecting: pick who's watching when there's more than one profile. */
   function start(info) {
     SM.serverFeatures = (info && info.features) || [];
+    SM.serverVersion = (info && info.version) || '';
     if (!info || (info.features || []).indexOf('profiles') === -1) { goHome(); return; }
     SM.api.profiles().then(function (r) {
       var list = r.profiles || [];

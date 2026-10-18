@@ -119,8 +119,10 @@
     }
     function now() { return offset + decoderTime(); }
 
-    /** No way of seeking in the original file worked on this TV (with this app version). */
-    function seekBroken() { return S.get('avSeekBroken') === SM.VERSION; }
+    /** No way of seeking in the original file worked on this TV, with this app and server
+     *  version (either changing means it is worth trying again). */
+    function seekKey() { return SM.VERSION + '@' + (SM.serverVersion || ''); }
+    function seekBroken() { return S.get('avSeekBroken') === seekKey(); }
 
     // ── start / restart ──
     function start(startSec, audioIndex, force) {
@@ -157,12 +159,14 @@
             root.classList.add('cover-video');
             backend.play();
             backend.pause();
-            after = backend.seek(startSec).then(function () {
+            after = new Promise(function (r) { setTimeout(r, 500); }).then(function () {
+              return backend.seek(startSec);
+            }).then(function () {
               root.classList.remove('cover-video');
             }, function (e) {
               // Remember for next time and restart from the right place on the server
               root.classList.remove('cover-video');
-              S.set('avSeekBroken', SM.VERSION);
+              S.set('avSeekBroken', seekKey());
               SM.devlog.log('player.resumeFallback', { startSec: startSec });
               return start(startSec, audioIndex, 'remux').then(function () { throw 'restarted'; });
             });
@@ -257,7 +261,7 @@
         backend.seek(target).then(function () { lastTime = target; lastTimeAt = Date.now(); setBuffering(false); },
           function () {
             // The TV refused to seek in the file: let the server stream from the new position
-            S.set('avSeekBroken', SM.VERSION);
+            S.set('avSeekBroken', seekKey());
             SM.devlog.log('player.seekFallback', { target: target });
             start(target, decision.audio_index, 'remux');
           });
