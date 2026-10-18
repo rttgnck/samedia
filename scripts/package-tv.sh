@@ -13,7 +13,18 @@ BUILD="$ROOT/dist/tv"
 TV_IP="${1:-}"
 PROFILE="${TIZEN_PROFILE:-}"
 
-command -v tizen >/dev/null || { echo "tizen CLI not found. Add ~/tizen-studio/tools/ide/bin to PATH." >&2; exit 1; }
+if [ -n "$TV_IP" ] && ! [[ "$TV_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+  echo "Expected the TV's IP address, e.g. scripts/package-tv.sh 192.168.1.50 (got: $TV_IP)" >&2
+  exit 1
+fi
+
+# Use Tizen Studio from its default location when it isn't on PATH
+TIZEN_HOME="${TIZEN_STUDIO:-$HOME/tizen-studio}"
+for dir in "$TIZEN_HOME/tools/ide/bin" "$TIZEN_HOME/tools"; do
+  [ -d "$dir" ] && PATH="$dir:$PATH"
+done
+
+command -v tizen >/dev/null || { echo "tizen CLI not found. Install Tizen Studio (see tv/README.md) or set TIZEN_STUDIO=<its folder>." >&2; exit 1; }
 
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 cp -R "$ROOT/tv/config.xml" "$ROOT/tv/index.html" "$ROOT/tv/icon.png" "$ROOT/tv/css" "$ROOT/tv/js" "$BUILD/"
@@ -29,9 +40,15 @@ mv "$WGT" "$ROOT/dist/Samedia.wgt"
 echo "✓ $ROOT/dist/Samedia.wgt"
 
 if [ -n "$TV_IP" ]; then
-  command -v sdb >/dev/null || { echo "sdb not found. Add ~/tizen-studio/tools to PATH." >&2; exit 1; }
+  command -v sdb >/dev/null || { echo "sdb not found in Tizen Studio's tools folder." >&2; exit 1; }
   echo "→ Connecting to $TV_IP"
-  sdb connect "$TV_IP"
+  sdb connect "$TV_IP" >/dev/null 2>&1 || true
+  # "connected to" and "already connected" both end up listed as a device
+  if ! sdb devices | grep -q "^$TV_IP:.*device"; then
+    echo "Couldn't connect to the TV at $TV_IP. On the TV: Apps → 1 2 3 4 5 → Developer mode On," >&2
+    echo "Host PC IP = this computer's IP, then hold the power button to restart the TV." >&2
+    exit 1
+  fi
   TARGET="$(sdb devices | awk 'NR>1 && $1 ~ /'"$TV_IP"'/ {print $3}' | head -1)"
   echo "→ Installing on ${TARGET:-$TV_IP}"
   tizen install -n "$ROOT/dist/Samedia.wgt" ${TARGET:+-t "$TARGET"}
