@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
-        id="http://github.com/rttgnck/samedia" version="0.4.3" viewmodes="maximized">
+        id="http://github.com/rttgnck/samedia" version="0.4.4" viewmodes="maximized">
     <tizen:application id="SamediaTV0.Samedia" package="SamediaTV0" required_version="2.3"/>
     <name>Samedia</name>
     <description>Modern media player for your nasOS / Samedia media server.</description>
@@ -16,6 +16,9 @@
     <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
     <tizen:privilege name="http://developer.samsung.com/privilege/network.public"/>
     <tizen:privilege name="http://developer.samsung.com/privilege/productinfo"/>
+    <!-- pointing-device-support: no TV pointer. The app is remote-only; an enabled pointer is
+         drawn by the TV itself (CSS can't hide it), e.g. at the screen centre over the video. -->
     <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable"
-                   encryption="disable" install-location="auto" hwkey-event="enable"/>
+                   encryption="disable" install-location="auto" hwkey-event="enable"
+                   pointing-device-support="disable"/>
 </widget>

@@ -568,7 +568,6 @@
           state: backend.state ? backend.state() : null, osd: osdVisible(),
           center: SM.devlog.at(960, 540), near: SM.devlog.near(960, 540, 200), focus: SM.devlog.describe(SM.focus.get()) });
       }
-      if (SM.devlog.on) devBlink();
       var t = now();
       if (subRenderer) subRenderer.update(t);
       if (osdVisible()) renderBar();
@@ -616,27 +615,7 @@
       return false;
     };
 
-    // Developer builds: from 15 s into playback, hide the whole page except the video for 8 s,
-    // show it for 8 s, twice — a mark that blinks with it comes from the page, one that
-    // doesn't comes from the TV.
-    var devPlayTicks = 0;
-    function devBlink() {
-      var html = document.documentElement;
-      if (!playing || buffering || osdVisible()) {
-        if (html.classList.contains('dev-hide-ui')) { html.classList.remove('dev-hide-ui'); SM.devlog.log('dev.blink', 'shown (osd/pause)'); }
-        return;
-      }
-      var n = ++devPlayTicks;
-      if (n < 75 || n > 75 + 40 * 4) return;
-      var hide = Math.floor((n - 75) / 40) % 2 === 0 && n < 75 + 40 * 4;
-      if (hide !== html.classList.contains('dev-hide-ui')) {
-        html.classList.toggle('dev-hide-ui', hide);
-        SM.devlog.log('dev.blink', hide ? 'page hidden' : 'page shown');
-      }
-    }
-
     function setPlayingClass(on) {
-      if (!on) document.documentElement.classList.remove('dev-hide-ui');
       document.documentElement.classList.toggle('playing', on);
       document.body.classList.toggle('playing', on);
     }

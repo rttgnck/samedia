@@ -293,9 +293,6 @@ video.av-object { background: #000; object-fit: contain; }
 .player-spinner { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: none; place-items: center; pointer-events: none; }
 .player-spinner.on { display: grid; animation: fade-in .2s .4s both; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-/* Developer builds: blink everything but the video to tell page marks from TV ones */
-html.dev-hide-ui * { visibility: hidden !important; }
-html.dev-hide-ui .av-mount, html.dev-hide-ui .av-object { visibility: visible !important; }
 .player-spinner .spinner { width: 96px; height: 96px; border-width: 7px; }
 
 .osd { position: absolute; top: 0; right: 0; bottom: 0; left: 0; opacity: 0; transition: opacity .25s; pointer-events: none; }
