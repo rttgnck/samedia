@@ -24,6 +24,8 @@ def test_truehd_default_track_is_remuxed_to_eac3():
 def test_supported_track_direct_plays():
     d = playback.decide(ITEM, None, audio_index=2)
     assert d["mode"] == "direct" and d["audio_ordinal"] == 1
+    # the URL carries the file's extension (Samsung's player won't seek in one without)
+    assert d["url"] == "/api/v1/stream/mtest/direct.mkv"
 
 
 def test_truehd_direct_when_tv_claims_support():

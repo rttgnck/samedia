@@ -178,7 +178,10 @@ def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, sta
     }
 
     if mode == "direct":
-        result.update(url=f"/api/v1/stream/{item['id']}/direct", start_offset=0, seekable=True,
+        # With the file's extension: Samsung's player seems to judge a URL without one as a live
+        # stream, and refuses every seek in it (InvalidValuesError)
+        ext = media.get("container") if media.get("container") in MIME else None
+        result.update(url=f"/api/v1/stream/{item['id']}/direct" + (f".{ext}" if ext else ""), start_offset=0, seekable=True,
                       mime=MIME.get(media.get("container"), "video/x-matroska"))
     else:
         offset = start

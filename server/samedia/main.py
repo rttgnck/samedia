@@ -471,7 +471,9 @@ _RANGE = re.compile(r"bytes=(\d*)-(\d*)")
 
 
 @app.api_route("/api/v1/stream/{item_id}/direct", methods=["GET", "HEAD"], dependencies=[api])
-def stream_direct(item_id: str, request: Request):
+@app.api_route("/api/v1/stream/{item_id}/direct.{ext}", methods=["GET", "HEAD"], dependencies=[api])
+def stream_direct(item_id: str, request: Request, ext: str = ""):
+    """The original file, with Range support. The extension in the URL is only for the TV."""
     row = library.get_item(item_id)
     if not row:
         raise HTTPException(404)

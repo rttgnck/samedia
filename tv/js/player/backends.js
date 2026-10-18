@@ -91,9 +91,10 @@
           if (SM.devlog.on) {
             var tracks = [];
             try { tracks = av.getTotalTrackInfo().map(function (t) { return t.type + ':' + t.index; }); } catch (e) {}
-            var dur = null;
+            var dur = null, live = null;
             try { dur = av.getDuration(); } catch (e) {}
-            SM.devlog.log('av.prepared', { duration: dur, tracks: tracks });
+            try { live = av.getStreamingProperty('IS_LIVE'); } catch (e) { live = 'n/a'; }
+            SM.devlog.log('av.prepared', { duration: dur, live: live, tracks: tracks, url: url.replace(/[?#].*$/, '').split('/').slice(-2).join('/') });
           }
           self.emit('ready');
           done(resolve);

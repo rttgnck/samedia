@@ -399,3 +399,17 @@ def test_tv_picks_avatars_only_for_its_profiles(client):
     assert client.post("/api/v1/profiles/default/avatar", json={"avatar": "robot"}, headers=tv).status_code == 403
     assert client.post("/api/v1/profiles/nope/avatar", json={"avatar": "robot"}, headers=tv).status_code == 403
     assert client.post(f"/api/v1/profiles/{kids['id']}/avatar", json={"avatar": ""}, headers=tv).json()["avatar"] is None
+
+
+def test_direct_stream_with_extension(client, tmp_path):
+    f = tmp_path / "clip.mp4"
+    f.write_bytes(bytes(range(256)) * 40)          # 10240 bytes
+    add_movie("m1", "Clip", str(f))
+    db.execute("UPDATE items SET media=? WHERE id='m1'", ('{"container": "mp4"}',))
+    for url in ("/api/v1/stream/m1/direct", "/api/v1/stream/m1/direct.mp4"):
+        head = client.head(url)
+        assert head.status_code == 200 and head.headers["content-length"] == "10240"
+        assert head.headers["accept-ranges"] == "bytes" and head.headers["content-type"] == "video/mp4"
+        r = client.get(url, headers={"Range": "bytes=1000-1099"})
+        assert r.status_code == 206 and r.headers["content-range"] == "bytes 1000-1099/10240"
+        assert r.content == f.read_bytes()[1000:1100]
