@@ -330,7 +330,7 @@ video.av-object { background: #000; object-fit: contain; }
 
 .playback-info { position: absolute; top: 56px; right: 70px; z-index: 5; background: rgba(7, 9, 13, .82); border-radius: 16px; padding: 22px 28px; font-size: 20px; line-height: 1.6; max-width: 760px; font-family: monospace; }
 .pi-mode { font-family: "SamsungOne", Arial, sans-serif; font-weight: 800; font-size: 24px; margin-bottom: 6px; }
-.pi-mode.direct { color: var(--ok); } .pi-mode.remux { color: var(--accent); } .pi-mode.transcode { color: var(--warn); }
+.pi-mode.direct, .pi-mode.hls { color: var(--ok); } .pi-mode.remux { color: var(--accent); } .pi-mode.transcode { color: var(--warn); }
 .pi-reasons { color: var(--faint); }
 
 .up-next { position: absolute; right: 80px; bottom: 80px; z-index: 6; }

@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import art, db, frames, library, playback, subtitles
+from . import art, db, frames, hls, library, playback, subtitles
 from .config import API_VERSION, EDITABLE, VERSION, apply_overrides, config
 from .scanner import scanner
 
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
     if os.environ.get("SAMEDIA_NO_SCAN") != "1":
         scanner.start_background()
     yield
+    await hls.manager.stop_all()
 
 
 app = FastAPI(title="Samedia", version=VERSION, lifespan=lifespan)
@@ -67,7 +68,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars", "hls"]}
 
 
 @app.post("/api/v1/auth")
@@ -442,7 +443,7 @@ class PlaybackBody(BaseModel):
     capabilities: dict | None = None
     audio_index: int | None = None
     start: float = 0
-    force: str | None = None           # None | "remux" | "transcode"
+    force: str | None = None           # None | "remux" | "transcode" | "hls"
     prefer_audio_lang: str | None = None
     session: str | None = None
 
@@ -454,11 +455,12 @@ def start_playback(item_id: str, body: PlaybackBody, v: library.Viewer = Me):
         raise HTTPException(404, "Item not found")
     if not row.get("media"):
         raise HTTPException(422, "This file could not be read (ffprobe failed).")
-    if body.force not in (None, "remux", "transcode"):
-        raise HTTPException(400, "force must be remux or transcode")
+    if body.force not in (None, "remux", "transcode", "hls"):
+        raise HTTPException(400, "force must be remux, transcode or hls")
     session = re.sub(r"[^A-Za-z0-9_-]", "", body.session or "")[:40] or uuid.uuid4().hex[:12]
     decision = playback.decide(row, body.capabilities, audio_index=body.audio_index, start=max(body.start, 0),
-                               force=body.force, prefer_lang=body.prefer_audio_lang, session=session)
+                               force=body.force, prefer_lang=body.prefer_audio_lang, session=session,
+                               token=access_token() if config.pin else "-")
     decision["session"] = session
     # Warm the subtitle cache so tracks are ready by the time the user opens the menu.
     if any(s["format"] in ("text", "pgs") for s in row["media"].get("subtitles", [])):
@@ -513,6 +515,49 @@ def stream_direct(item_id: str, request: Request, ext: str = ""):
                 yield data
 
     return StreamingResponse(reader(), status_code=status, headers=headers, media_type=mime)
+
+
+# ── HLS (segments of the untouched video; see hls.py) ─────────────────
+# The token sits in the path: players resolve segment URIs against the playlist URL and drop
+# any query string, and Samsung's player wants the playlist URL to end in .m3u8.
+
+def _hls_request(token: str, item_id: str, session: str, audio: int, acodec: str) -> tuple[dict, str]:
+    if config.pin and not hmac.compare_digest(token, access_token()):
+        raise HTTPException(401, "PIN required")
+    row = library.get_item(item_id)
+    if not row or not (row.get("media") or {}).get("video"):
+        raise HTTPException(404)
+    if acodec not in ("copy", "eac3"):
+        raise HTTPException(400, "bad codec")
+    if audio >= 0 and audio not in {a["index"] for a in row["media"].get("audio", [])}:
+        raise HTTPException(400, "bad audio index")
+    return row, re.sub(r"[^A-Za-z0-9_-]", "", session)[:40] or "default"
+
+
+@app.get("/api/v1/hls/{token}/{item_id}/{session}/{audio}/{acodec}/index.m3u8")
+async def hls_playlist(token: str, item_id: str, session: str, audio: int, acodec: str):
+    row, _ = _hls_request(token, item_id, session, audio, acodec)
+    starts, duration = await run_in_threadpool(hls.index_for, row)
+    return Response(hls.playlist(starts, duration), media_type="application/vnd.apple.mpegurl",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/v1/hls/{token}/{item_id}/{session}/{audio}/{acodec}/{n:int}.ts")
+async def hls_segment(token: str, item_id: str, session: str, audio: int, acodec: str, n: int):
+    row, session = _hls_request(token, item_id, session, audio, acodec)
+    starts, _ = await run_in_threadpool(hls.index_for, row)
+    if not 0 <= n < len(starts):
+        raise HTTPException(404)
+    stream = next((a for a in row["media"].get("audio", []) if a["index"] == audio), {})
+    path = await hls.manager.segment(session, (item_id, audio, acodec), row, starts, n, audio, acodec,
+                                     min(stream.get("channels") or 6, 6))
+    if not path:
+        raise HTTPException(503, "Segment not ready")
+    try:
+        data = path.read_bytes()          # now: older segments are cleaned up as playback moves on
+    except OSError:
+        raise HTTPException(503, "Segment not ready")
+    return Response(data, media_type="video/mp2t", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/v1/stream/{item_id}/remux", dependencies=[api])

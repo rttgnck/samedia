@@ -119,7 +119,8 @@ def subtitle_tracks(item: dict) -> list[dict]:
 
 
 def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, start: float = 0,
-           force: str | None = None, prefer_lang: str | None = None, session: str = "default") -> dict:
+           force: str | None = None, prefer_lang: str | None = None, session: str = "default",
+           token: str = "-") -> dict:
     caps = {**DEFAULT_CAPS, **(caps or {})}
     media = item.get("media") or {}
     video = media.get("video")
@@ -147,8 +148,17 @@ def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, sta
     if not audio_ok:
         reasons.append(f"audio {audio_codec_key(chosen)} not supported")
 
+    # HLS (segments of the untouched video) when the player asks for it and can take this
+    # video inside MPEG-TS segments (iPhone/iPad can't take HEVC there)
+    hls_ok = bool(video) and video_ok and video["codec"] in caps.get("hls_video", caps["video"])
+    if force == "hls" and not hls_ok:
+        force = None if container_ok and audio_ok and video_ok else "transcode"
+        reasons.append("segments not possible for this video")
+
     if force == "transcode" or not video_ok:
         mode = "transcode"
+    elif force == "hls":
+        mode = "hls"
     elif force == "remux" or not (container_ok and audio_ok):
         mode = "remux"
     else:
@@ -177,7 +187,13 @@ def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, sta
         "video": video,
     }
 
-    if mode == "direct":
+    if mode == "hls":
+        audio_param = result["audio_index"] if chosen else -1
+        result.update(url=f"/api/v1/hls/{token}/{item['id']}/{session}/{audio_param}/{acodec}/index.m3u8",
+                      start_offset=0, seekable=True, mime="application/vnd.apple.mpegurl")
+        if acodec == "eac3" and chosen:
+            result["warnings"].append(f"Converting {_audio_label(chosen)} audio to Dolby Digital+ 5.1 for the TV.")
+    elif mode == "direct":
         # With the file's extension: Samsung's player seems to judge a URL without one as a live
         # stream, and refuses every seek in it (InvalidValuesError)
         ext = media.get("container") if media.get("container") in MIME else None

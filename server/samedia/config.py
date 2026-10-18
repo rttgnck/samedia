@@ -9,7 +9,7 @@ import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "0.4.3"
+VERSION = "0.5.0"
 API_VERSION = 1
 
 

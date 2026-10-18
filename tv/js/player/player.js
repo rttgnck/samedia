@@ -119,17 +119,20 @@
     }
     function now() { return offset + decoderTime(); }
 
-    /** No way of seeking in the original file worked on this TV, with this app and server
-     *  version (either changing means it is worth trying again). */
-    function seekKey() { return SM.VERSION + '@' + (SM.serverVersion || ''); }
-    function seekBroken() { return S.get('avSeekBroken') === seekKey(); }
+    /** Learned: this TV's player can't seek in a plain file over HTTP (no way of asking works). */
+    function fileSeekBroken() { return !!S.get('avSeekBroken'); }
+    function hlsAvailable() { return (SM.serverFeatures || []).indexOf('hls') !== -1; }
+    /** Where to go when the original file can't be used: segments (seekable) or the server's stream. */
+    function fallback() { return hlsAvailable() ? 'hls' : 'remux'; }
+    function learnFileSeekBroken() { S.set('avSeekBroken', SM.VERSION); }
 
     // ── start / restart ──
     function start(startSec, audioIndex, force) {
       ended = false;
       setBuffering(true);
-      // On TVs that can't seek in a file, starting mid-way means letting the server start there
-      if (!force && startSec > 1 && seekBroken()) force = 'remux';
+      // On TVs that can't seek in a file: segments from the server (seekable), or failing that
+      // the server's stream starting mid-way
+      if (!force && fileSeekBroken()) force = hlsAvailable() ? 'hls' : (startSec > 1 ? 'remux' : null);
       var body = {
         capabilities: S.capabilities(), start: startSec, session: session,
         audio_index: audioIndex === undefined ? null : audioIndex,
@@ -166,16 +169,16 @@
             }, function (e) {
               // Remember for next time and restart from the right place on the server
               root.classList.remove('cover-video');
-              S.set('avSeekBroken', seekKey());
-              SM.devlog.log('player.resumeFallback', { startSec: startSec });
-              return start(startSec, audioIndex, 'remux').then(function () { throw 'restarted'; });
+              if (d.mode === 'direct') learnFileSeekBroken();
+              SM.devlog.log('player.resumeFallback', { startSec: startSec, mode: d.mode });
+              return start(startSec, audioIndex, d.mode === 'direct' ? fallback() : 'remux').then(function () { throw 'restarted'; });
             });
           }
           return after.then(function () {
             if (d.mode === 'direct' && d.audio_ordinal > 0) {
               if (!backend.selectAudio(d.audio_ordinal)) {
                 // Native track switching failed; let the server pick the track instead.
-                return start(startSec, d.audio_index, 'remux');
+                return start(startSec, d.audio_index, fallback());
               }
             }
             backend.play();
@@ -195,6 +198,12 @@
         // The TV refused the original file: retry with the server converting audio/container.
         retried = true;
         ui.toast('This TV could not play the file directly — converting audio on the server…', 4500);
+        start(pos, decision.audio_index, fallback());
+        return;
+      }
+      if (decision && decision.mode === 'hls' && !retried) {
+        retried = true;
+        SM.devlog.log('player.hlsFailed', { err: err && err.message });
         start(pos, decision.audio_index, 'remux');
         return;
       }
@@ -254,17 +263,18 @@
       SM.devlog.log('player.seekTo', { target: target, now: now(), seekable: decision && decision.seekable, mode: decision && decision.mode });
       target = Math.max(0, Math.min(duration ? duration - 3 : target, target));
       if (!decision) return;
-      if (decision.seekable && seekBroken()) {
-        start(target, decision.audio_index, 'remux');
-      } else if (decision.seekable) {
+      var mode = decision.mode;
+      if (mode === 'hls' || (mode === 'direct' && !fileSeekBroken())) {
         setBuffering(true);
         backend.seek(target).then(function () { lastTime = target; lastTimeAt = Date.now(); setBuffering(false); },
           function () {
-            // The TV refused to seek in the file: let the server stream from the new position
-            S.set('avSeekBroken', seekKey());
-            SM.devlog.log('player.seekFallback', { target: target });
-            start(target, decision.audio_index, 'remux');
+            // The TV refused to seek: segments (or the server's stream) from the new position
+            if (mode === 'direct') learnFileSeekBroken();
+            SM.devlog.log('player.seekFallback', { target: target, mode: mode });
+            start(target, decision.audio_index, mode === 'direct' ? fallback() : 'remux');
           });
+      } else if (mode === 'direct') {
+        start(target, decision.audio_index, fallback());
       } else {
         start(target, decision.audio_index, decision.mode === 'transcode' ? 'transcode' : (decision.mode === 'remux' ? 'remux' : null));
       }
@@ -460,7 +470,8 @@
       if (!decision || !S.get('showPlaybackInfo')) return;
       var v = decision.video || {};
       var audio = (decision.audio_tracks || []).filter(function (a) { return a.index === decision.audio_index; })[0];
-      var modeLabel = { direct: 'Direct play', remux: 'Remux (video untouched)', transcode: 'Transcoding video' }[decision.mode];
+      var modeLabel = { direct: 'Direct play', hls: 'Direct stream in segments (video untouched)',
+                        remux: 'Remux (video untouched)', transcode: 'Transcoding video' }[decision.mode];
       SM.util.clear(infoBox).appendChild(el('div', [
         el('div.pi-mode.' + decision.mode, { text: modeLabel }),
         el('div', { text: 'Video  ' + [v.codec, v.width && v.width + '×' + v.height, v.hdr].filter(Boolean).join(' · ') }),
