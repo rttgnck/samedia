@@ -690,7 +690,12 @@
     if (!item.bookmarks) {
       SM.api.bookmarks(item.id).then(function (r) { bookmarks = r.bookmarks; renderTicks(); }, function () {});
     }
-    start(resumeAt, opts.audioIndex === null ? undefined : opts.audioIndex);
+    // The server may have been updated since the app started (e.g. now offers segments)
+    SM.api.get('/api/v1/info', { timeout: 3000 }).then(function (info) {
+      if (info && info.features) { SM.serverFeatures = info.features; SM.serverVersion = info.version || ''; }
+    }, function () {}).then(function () {
+      if (!destroyed) start(resumeAt, opts.audioIndex === null ? undefined : opts.audioIndex);
+    });
     showOsd();
     return view;
   });
