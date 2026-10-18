@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.6.0';
+  SM.VERSION = '0.7.0';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -202,6 +202,7 @@
   function start(info) {
     SM.serverFeatures = (info && info.features) || [];
     SM.serverVersion = (info && info.version) || '';
+    if (SM.serverFeatures.indexOf('remote') !== -1) SM.remote.restart();
     if (!info || (info.features || []).indexOf('profiles') === -1) { goHome(); return; }
     SM.api.profiles().then(function (r) {
       var list = r.profiles || [];

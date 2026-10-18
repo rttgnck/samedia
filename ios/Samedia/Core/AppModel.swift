@@ -19,6 +19,9 @@ final class AppModel {
     /// Bumped when what the screens show may have changed (after playback, watched marks...).
     var refreshToken = 0
     let player = PlayerCoordinator()
+    let remote = RemoteLink()
+    /// A short message shown at the bottom of the screen.
+    var toast: String?
 
     private let defaults = UserDefaults.standard
 
@@ -118,6 +121,7 @@ final class AppModel {
         if let data = try? JSONEncoder().encode(p) { defaults.set(data, forKey: "profile") }
         stage = .main
         refreshToken += 1
+        remote.start(model: self)
     }
 
     func switchProfile() {
@@ -126,6 +130,7 @@ final class AppModel {
     }
 
     func forgetServer() {
+        remote.stop()
         for key in ["server", "token", "profile"] { defaults.removeObject(forKey: key) }
         api = nil
         info = nil
@@ -157,4 +162,55 @@ final class AppModel {
     }
 
     var hasAvatars: Bool { info?.features.contains("avatars") ?? false }
+    var hasRemote: Bool { info?.features.contains("remote") ?? false }
+
+    func show(_ message: String) {
+        toast = message
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            if toast == message { toast = nil }
+        }
+    }
+
+    // ── remote control ──
+
+    /// The other screens that are on.
+    func players() async -> [RemotePlayer] {
+        (try? await api?.get("/api/v1/remote/players", as: RemotePlayers.self).players) ?? []
+    }
+
+    func command(_ player: RemotePlayer, _ body: [String: Any]) async throws {
+        guard let api else { return }
+        try await api.postIgnoringReply("/api/v1/remote/players/\(player.id)/command", body)
+    }
+
+    /// Start a title on another screen, as this profile, from a position.
+    func playOn(_ player: RemotePlayer, item: MediaItem, at position: Double?) async -> Bool {
+        do {
+            var body: [String: Any] = ["action": "play", "item_id": item.id, "position": position ?? 0]
+            if let p = profile { body["profile_id"] = p.id }
+            try await command(player, body)
+            show("Playing on \(player.name)")
+            return true
+        } catch {
+            show(error.localizedDescription)
+            return false
+        }
+    }
+
+    /// A command from another device.
+    func remoteCommand(_ msg: [String: Any]) {
+        guard let action = msg["action"] as? String else { return }
+        guard action == "play" else { player.command(action, msg); return }
+        guard let itemID = msg["item_id"] as? String, let api else { return }
+        let position = msg["position"] as? Double
+        Task {
+            if let pid = msg["profile_id"] as? String, pid != profile?.id {
+                try? await loadProfiles()
+                if let p = profiles.first(where: { $0.id == pid }) { select(p) }
+            }
+            guard let detail = try? await api.get("/api/v1/items/\(itemID)", as: ItemDetail.self) else { return }
+            player.replace(with: detail.item, start: position, model: self)
+        }
+    }
 }

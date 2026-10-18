@@ -91,6 +91,7 @@ struct DetailView: View {
                 }
                 .buttonStyle(.bordered).controlSize(.large)
             }
+            PlayOnButton(item: current, position: current.resumeAt)
             Button {
                 Task { await model.setWatched(current, !current.watched) }
             } label: {

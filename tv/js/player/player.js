@@ -84,12 +84,14 @@
     var episodesBtn = ui.button('Episodes', 'list', chooseEpisode);
     var infoBtn = ui.button(null, 'info', toggleInfo, 'round');
     var nextBtn = ui.button('Next episode', 'next', function () { playNext(); });
+    var sendBtn = ui.button('Send to', 'cast', sendTo);
     var controls = el('div.osd-controls', { 'data-group': '' }, [
       ui.button(null, 'restart', function () { seekTo(0); showOsd(); }, 'round'),
       ui.button(null, 'back10', function () { seekBy(-10); }, 'round'), playBtn,
       ui.button(null, 'fwd30', function () { seekBy(30); }, 'round'),
-      audioBtn, subsBtn, markBtn, marksBtn, pictureBtn, episodesBtn, nextBtn, infoBtn,
+      audioBtn, subsBtn, markBtn, marksBtn, pictureBtn, episodesBtn, nextBtn, sendBtn, infoBtn,
     ]);
+    if ((SM.serverFeatures || []).indexOf('remote') === -1) sendBtn.classList.add('hidden');
     var osd = el('div.osd', [
       el('div.osd-top', [el('div.osd-top-row', [el('div', [titleEl, subtitleEl]), clockEl])]),
       el('div.osd-bottom', [el('div.osd-bar-wrap', { 'data-group': '' }, [bar]),
@@ -252,6 +254,37 @@
       else { backend.play(); playing = true; lastTimeAt = Date.now(); }
       updatePlayIcon();
       showOsd();
+      reportRemote();
+    }
+
+    // ── remote control: what we play, and commands from other devices ──
+    function reportRemote() {
+      SM.remote.report({ item_id: item.id, title: item.show_title ? item.show_title + ' · ' + item.title : item.title,
+                         kind: item.kind, position: now(), duration: duration, playing: playing,
+                         profile_id: S.get('profileId') });
+    }
+
+    var remoteHandlers = {
+      pause: function () { if (playing) togglePlay(); },
+      resume: function () { if (!playing) togglePlay(); },
+      toggle: function () { togglePlay(); },
+      seek: function (m) { seekTo(m.position || 0); showOsd(); },
+      skip: function (m) { seekTo(now() + (m.delta || 0)); showOsd(); },
+      stop: function () { SM.router.pop(); },
+    };
+    SM.remote.attach(remoteHandlers);
+
+    /** Hand over to another screen: it carries on from here, this one stops. */
+    function sendTo() {
+      SM.remote.pickPlayer('Send to', function (p) {
+        var at = Math.max(0, now() - 2);
+        SM.api.post('/api/v1/remote/players/' + encodeURIComponent(p.id) + '/command',
+          { action: 'play', item_id: item.id, position: at, profile_id: S.get('profileId') })
+          .then(function () {
+            ui.toast('Now playing on ' + p.name);
+            SM.router.pop();
+          }, function (err) { ui.toast((err && err.message) || 'That screen did not answer'); });
+      });
     }
 
     function updatePlayIcon() {
@@ -577,7 +610,7 @@
       });
     }
 
-    var snapEvery = 0, lastTickTime = -1;
+    var snapEvery = 0, lastTickTime = -1, remoteEvery = 0;
     function tick() {
       if (!backend || destroyed) return;
       if (buffering && playing) {
@@ -588,6 +621,7 @@
       } else {
         lastTickTime = -1;
       }
+      if (++remoteEvery % 25 === 0) reportRemote();   // every ~5 s
       if (SM.devlog.on && ++snapEvery % 25 === 0) {   // every ~5 s
         SM.devlog.log('player.snapshot', { t: now(), playing: playing, buffering: buffering,
           state: backend.state ? backend.state() : null, osd: osdVisible(),
@@ -664,6 +698,8 @@
       }, 2500);
       destroyed = true;
       reportProgress(true);
+      SM.remote.detach(remoteHandlers);
+      SM.remote.report(null);
       clearInterval(tickTimer);
       clearInterval(nextTimer);
       clearTimeout(osdTimer);

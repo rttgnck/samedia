@@ -103,6 +103,7 @@ struct HomeView: View {
                           systemImage: "info.circle").frame(minWidth: 120)
                 }
                 .buttonStyle(.bordered).controlSize(.large)
+                PlayOnButton(item: item, position: item.resumeAt)
             }
             .padding(.top, 4)
         }

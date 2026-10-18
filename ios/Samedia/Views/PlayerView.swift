@@ -17,6 +17,9 @@ final class PlayerCoordinator: NSObject {
     private var cancellables: Set<AnyCancellable> = []
     private var finished = false
     private var subtitles: SubtitleOverlay?
+    private var remoteObserver: Any?
+    private var sendButton: UIButton?
+    private var hideSendButton: Task<Void, Never>?
     private var inPictureInPicture = false
 
     func play(_ item: MediaItem, start: Double?, model: AppModel) {
@@ -25,6 +28,104 @@ final class PlayerCoordinator: NSObject {
         self.item = item
         finished = false
         Task { await open(item, start: start, api: api) }
+    }
+
+    /// Play something else now (a remote command), closing what is playing.
+    func replace(with item: MediaItem, start: Double?, model: AppModel) {
+        if let controller, controller.presentingViewController != nil {
+            controller.dismiss(animated: false)
+            close()
+        }
+        play(item, start: start, model: model)
+    }
+
+    /// A command from another device for what is playing here.
+    func command(_ action: String, _ msg: [String: Any]) {
+        guard let player else { return }
+        let offset = decision?.startOffset ?? 0
+        switch action {
+        case "pause": player.pause()
+        case "resume": player.play()
+        case "toggle": player.rate == 0 ? player.play() : player.pause()
+        case "seek":
+            let to = (msg["position"] as? Double ?? 0) - offset
+            player.seek(to: CMTime(seconds: max(0, to), preferredTimescale: 600))
+        case "skip":
+            let to = player.currentTime().seconds + (msg["delta"] as? Double ?? 0)
+            player.seek(to: CMTime(seconds: max(0, to), preferredTimescale: 600))
+        case "stop": controller?.dismiss(animated: true)
+        default: break
+        }
+        reportRemote()
+    }
+
+    private func reportRemote() {
+        guard let player, let item, let model else { return }
+        let title = item.showTitle.map { "\($0) · \(item.title)" } ?? item.title
+        model.remote.report(["item_id": item.id, "title": title, "kind": item.kind,
+                             "position": player.currentTime().seconds + (decision?.startOffset ?? 0),
+                             "duration": decision?.duration ?? item.duration ?? 0,
+                             "playing": player.rate != 0, "profile_id": model.profile?.id ?? "default"])
+    }
+
+    /// Hand over to another screen: it carries on from here, this one stops.
+    private func sendToAnotherScreen() {
+        guard let model, let item, let player, let controller else { return }
+        let at = max(0, player.currentTime().seconds + (decision?.startOffset ?? 0) - 2)
+        Task {
+            let players = await model.players()
+            let sheet = UIAlertController(title: "Send to", message: players.isEmpty ? "No other Samedia screens are on." : nil,
+                                          preferredStyle: .actionSheet)
+            for p in players {
+                sheet.addAction(UIAlertAction(title: p.name, style: .default) { _ in
+                    Task {
+                        if await model.playOn(p, item: item, at: at) { controller.dismiss(animated: true) }
+                    }
+                })
+            }
+            sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            sheet.popoverPresentationController?.sourceView = sendButton
+            controller.present(sheet, animated: true)
+        }
+    }
+
+    /// "Send to" floats over the player, showing for a few seconds after each touch.
+    private func addSendButton(to controller: AVPlayerViewController) {
+        guard model?.hasRemote == true else { return }
+        var config = UIButton.Configuration.filled()
+        config.image = UIImage(systemName: "tv.and.mediabox")
+        config.title = "Send to"
+        config.imagePadding = 8
+        config.cornerStyle = .capsule
+        config.baseBackgroundColor = UIColor(white: 0.15, alpha: 0.75)
+        config.baseForegroundColor = .white
+        let button = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.sendToAnotherScreen() })
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.alpha = 0
+        // On the window, not inside the player: the player cancels touches that start in its view
+        guard let window = controller.view.window else { return }
+        window.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.trailingAnchor.constraint(equalTo: window.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            button.topAnchor.constraint(equalTo: window.safeAreaLayoutGuide.topAnchor, constant: 64),
+        ])
+        sendButton = button
+        let tap = UITapGestureRecognizer(target: self, action: #selector(touched))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        controller.view.addGestureRecognizer(tap)
+        touched()
+    }
+
+    @objc private func touched() {
+        if let b = sendButton { b.superview?.bringSubviewToFront(b) }
+        UIView.animate(withDuration: 0.2) { self.sendButton?.alpha = 1 }
+        hideSendButton?.cancel()
+        hideSendButton = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            UIView.animate(withDuration: 0.4) { self?.sendButton?.alpha = 0 }
+        }
     }
 
     private func open(_ item: MediaItem, start: Double?, api: APIClient) async {
@@ -57,17 +158,20 @@ final class PlayerCoordinator: NSObject {
                 guard let self, !self.inPictureInPicture else { return }   // still playing in the corner
                 self.close()
             }
-            topViewController()?.present(controller, animated: true)
+            topViewController()?.present(controller, animated: true) { [weak self] in self?.addSendButton(to: controller) }
             self.controller = controller
 
             try await waitUntilReady(playerItem)
-            print("[Samedia] ready, mode \(d.mode), start \(start ?? 0)")
             if let start, start > 1 {
                 let at = CMTime(seconds: max(0, start - d.startOffset), preferredTimescale: 600)
                 _ = await player.seek(to: at, toleranceBefore: .zero, toleranceAfter: .positiveInfinity)
             }
             player.play()
             observe(player, playerItem)
+            remoteObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 5, preferredTimescale: 1),
+                                                            queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reportRemote() }
+            }
             await showSubtitles(d, language: language, api: api)
         } catch {
             close(report: false)
@@ -87,7 +191,6 @@ final class PlayerCoordinator: NSObject {
         let overlay = SubtitleOverlay()
         overlay.attach(to: controller, player: player, cues: cues, offset: d.startOffset)
         subtitles = overlay
-        print("[Samedia] subtitles: \(track.label), \(cues.count) lines")
     }
 
     private func waitUntilReady(_ item: AVPlayerItem) async throws {
@@ -109,7 +212,10 @@ final class PlayerCoordinator: NSObject {
         }
         player.publisher(for: \.timeControlStatus)
             .removeDuplicates()
-            .sink { [weak self] status in if status == .paused { self?.report() } }
+            .sink { [weak self] status in
+                if status == .paused { self?.report() }
+                self?.reportRemote()
+            }
             .store(in: &cancellables)
         playerItem.publisher(for: \.status)
             .sink { [weak self] status in
@@ -144,6 +250,12 @@ final class PlayerCoordinator: NSObject {
         timeObserver = nil
         subtitles?.detach()
         subtitles = nil
+        if let remoteObserver { player?.removeTimeObserver(remoteObserver) }
+        remoteObserver = nil
+        hideSendButton?.cancel()
+        sendButton?.removeFromSuperview()
+        sendButton = nil
+        model?.remote.report(nil)
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         cancellables = []
@@ -187,14 +299,24 @@ final class PlayerCoordinator: NSObject {
     }
 }
 
+extension PlayerCoordinator: UIGestureRecognizerDelegate {
+    nonisolated func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+}
+
 extension PlayerCoordinator: AVPlayerViewControllerDelegate {
     nonisolated func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-        MainActor.assumeIsolated { inPictureInPicture = true }
+        MainActor.assumeIsolated {
+            inPictureInPicture = true
+            sendButton?.isHidden = true
+        }
     }
 
     nonisolated func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
         MainActor.assumeIsolated {
             inPictureInPicture = false
+            sendButton?.isHidden = false
             if controller?.presentingViewController == nil { close() }      // closed from the corner
         }
     }

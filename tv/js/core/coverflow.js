@@ -156,6 +156,10 @@
          el('span', { text: it.kind === 'show' ? 'Episodes' : isCol ? 'All ' + it.item_count + ' movies' : 'Details' })]);
       actions.appendChild(play);
       actions.appendChild(info);
+      if ((it.kind === 'movie' || it.kind === 'episode') && (SM.serverFeatures || []).indexOf('remote') !== -1) {
+        actions.appendChild(el('div.cf-btn.f', { onclick: function () { SM.remote.playOn(it, SM.util.resumeAt(it)); } },
+          [ui.icon('cast'), el('span', { text: 'Play on…' })]));
+      }
       node.classList.add('flipped');
       node.style.transform = 'translate3d(0,24px,' + FLIP_Z + 'px)';
       root.classList.add('is-flipped');

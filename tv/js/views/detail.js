@@ -98,6 +98,11 @@
         restart.dataset.k = 'restart';
         buttons.push(restart);
       }
+      if ((SM.serverFeatures || []).indexOf('remote') !== -1) {
+        var castBtn = ui.button('Play on…', 'cast', function () { SM.remote.playOn(item, SM.util.resumeAt(item)); });
+        castBtn.dataset.k = 'cast';
+        buttons.push(castBtn);
+      }
       var aBtn = ui.button(audioLabel(), 'audio', chooseAudio);
       aBtn.dataset.k = 'audio';
       var sBtn = ui.button(subsLabel(), 'subs', chooseSubs);

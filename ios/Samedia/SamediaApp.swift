@@ -29,7 +29,7 @@ struct RootView: View {
 /// The app's screens with the TV-style rail of soft icons floating over them (it never
 /// moves the content).
 struct MainView: View {
-    enum Section: CaseIterable { case home, movies, shows, search }
+    enum Section: CaseIterable { case home, movies, shows, search, remote }
 
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
@@ -43,11 +43,20 @@ struct MainView: View {
                 case .movies: NavigationStack { LibraryView(kind: .movies) }
                 case .shows: NavigationStack { LibraryView(kind: .shows) }
                 case .search: NavigationStack { SearchView() }
+                case .remote: RemoteView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             Rail(section: $section)
         }
+        .overlay(alignment: .bottom) {
+            if let toast = model.toast {
+                Text(toast).font(.callout.weight(.semibold)).padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule()).padding(.bottom, 30)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: model.toast)
         // Back in the app: another device may have watched something meanwhile
         .onChange(of: scenePhase) { _, phase in if phase == .active { model.refreshToken += 1 } }
     }
@@ -66,6 +75,7 @@ struct Rail: View {
             icon(.movies, "film.fill")
             icon(.shows, "tv.fill")
             icon(.search, "magnifyingglass")
+            if model.hasRemote { icon(.remote, "appletvremote.gen4.fill") }
             if let p = model.profile {
                 Menu {
                     Button("Switch profile", systemImage: "person.2") { model.switchProfile() }

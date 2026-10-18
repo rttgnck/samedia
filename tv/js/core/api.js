@@ -167,6 +167,7 @@
   }
 
   SM.api = {
+    deviceId: deviceId, deviceName: function () { return deviceName; },
     base: base, abs: abs, art: art, probe: probe, discover: discover, localIp: localIp,
     get: function (path, opts) { return request('GET', path, undefined, opts); },
     post: function (path, body, opts) { return request('POST', path, body || {}, opts); },

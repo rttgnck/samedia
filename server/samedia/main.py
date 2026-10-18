@@ -13,14 +13,14 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import art, db, forced, frames, hls, library, opensubs, playback, probe, subtitles
+from . import art, db, forced, frames, hls, library, opensubs, playback, probe, remote, subtitles
 from .config import API_VERSION, EDITABLE, VERSION, apply_overrides, config
 from .scanner import scanner
 
@@ -68,7 +68,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars", "hls", "foreign-parts-subtitles"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars", "hls", "foreign-parts-subtitles", "remote"]}
 
 
 @app.post("/api/v1/auth")
@@ -88,11 +88,15 @@ _DEVICE_SEEN_EVERY = 60  # seconds between last-seen updates
 def current_device(request: Request) -> dict | None:
     """The TV making the request (X-Samedia-Device), registered on first contact."""
     did = request.headers.get("x-samedia-device") or ""
-    if not _DEVICE_ID.match(did):
+    model = urllib.parse.unquote(request.headers.get("x-samedia-device-name") or "")[:80] or None
+    return register_device(did, model)
+
+
+def register_device(did: str, model: str | None) -> dict | None:
+    if not _DEVICE_ID.match(did or ""):
         return None
     now = time.time()
     row = db.one("SELECT * FROM devices WHERE id=?", (did,))
-    model = urllib.parse.unquote(request.headers.get("x-samedia-device-name") or "")[:80] or None
     if not row:
         default = db.load_settings().get("new_device_profiles")   # None = all profiles
         db.upsert("devices", {"id": did, "name": None, "model": model, "profiles": default,
@@ -545,6 +549,82 @@ def stream_direct(item_id: str, request: Request, ext: str = ""):
                 yield data
 
     return StreamingResponse(reader(), status_code=status, headers=headers, media_type=mime)
+
+
+# ── players and remotes (see remote.py) ───────────────────────────────
+
+@app.websocket("/api/v1/remote/ws")
+async def remote_ws(ws: WebSocket, device: str = "", name: str = "", kind: str = "tv", t: str | None = None):
+    """A running app, ready to be told what to play and telling what it plays."""
+    if config.pin and not (t and hmac.compare_digest(t, access_token())):
+        await ws.close(code=4401)
+        return
+    if not _DEVICE_ID.match(device):
+        await ws.close(code=4400)
+        return
+    await ws.accept()
+    name = urllib.parse.unquote(name)[:80] or kind
+    await run_in_threadpool(register_device, device, name)
+    player = await remote.hub.connect(ws, device, name, re.sub(r"[^a-z]", "", kind)[:12] or "tv")
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("type") == "state":
+                remote.hub.update(player, msg)
+            elif msg.get("type") == "ping":
+                await ws.send_json({"type": "pong"})
+    except (WebSocketDisconnect, RuntimeError, ValueError):
+        pass
+    finally:
+        remote.hub.disconnect(player)
+
+
+def _player_label(device_id: str, fallback: str) -> str:
+    row = db.one("SELECT name, model FROM devices WHERE id=?", (device_id,)) or {}
+    return row.get("name") or row.get("model") or fallback
+
+
+@app.get("/api/v1/remote/players", dependencies=[api])
+def remote_players(request: Request):
+    """The players that are on now (not the one asking), with what they are playing."""
+    me = request.headers.get("x-samedia-device")
+    out = [p.describe(_player_label(p.device_id, p.name)) for p in list(remote.hub.players.values())
+           if p.device_id != me]
+    return {"players": sorted(out, key=lambda p: p["name"].lower())}
+
+
+class CommandBody(BaseModel):
+    action: str
+    item_id: str | None = None
+    position: float | None = None
+    delta: float | None = None
+    profile_id: str | None = None
+
+
+@app.post("/api/v1/remote/players/{device_id}/command", dependencies=[api])
+async def remote_command(device_id: str, body: CommandBody, request: Request):
+    if body.action not in remote.ACTIONS:
+        raise HTTPException(400, "Unknown action")
+    msg: dict = {"type": "command", "action": body.action}
+    if body.action == "play":
+        if not body.item_id or not db.one("SELECT id FROM items WHERE id=?", (body.item_id,)):
+            raise HTTPException(404, "Title not found")
+        # as the sender's profile, if the target may show it (a kids' TV stays kids)
+        pid = body.profile_id or request.headers.get("x-samedia-profile") or db.DEFAULT_PROFILE
+        target = db.one("SELECT * FROM devices WHERE id=?", (device_id,))
+        allowed = [p["id"] for p in allowed_profiles(target)]
+        if pid not in allowed:
+            raise HTTPException(403, "That screen can't play as this profile")
+        msg.update(item_id=body.item_id, position=max(body.position or 0, 0), profile_id=pid)
+    elif body.action == "seek":
+        if body.position is None:
+            raise HTTPException(400, "position is required")
+        msg["position"] = max(body.position, 0)
+    elif body.action == "skip":
+        msg["delta"] = body.delta or 0
+    if not await remote.hub.send(device_id, msg):
+        raise HTTPException(404, "That player isn't on")
+    return {"ok": True}
 
 
 # ── HLS (segments of the untouched video; see hls.py) ─────────────────
