@@ -231,7 +231,7 @@
       var box = el('div.input-box', { text: value || opts.placeholder || '' });
       box.classList.toggle('empty', !value);
       function shown(v) {
-        // Names read better capitalised: "nick" -> "Nick"
+        // Names read better capitalised: "sam" -> "Sam"
         return opts.capitalize ? v.replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); }) : v;
       }
       var done = false;
