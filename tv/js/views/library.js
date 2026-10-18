@@ -20,8 +20,9 @@
     var sortBtn = ui.button('Sort', 'sort', chooseSort, 'chip');
     var genreBtn = ui.button('Genre', 'filter', chooseGenre, 'chip');
     var unwatchedBtn = kind === 'movies' ? ui.button('Unwatched', 'eye', toggleUnwatched, 'chip') : null;
+    var groupBtn = kind === 'movies' ? ui.button('Collections', 'stack', toggleGroup, 'chip') : null;
     var modeBtn = ui.button('View', 'film', toggleMode, 'chip');
-    var toolbar = el('div.toolbar', { 'data-group': '' }, [sortBtn, genreBtn, unwatchedBtn, modeBtn]);
+    var toolbar = el('div.toolbar', { 'data-group': '' }, [sortBtn, genreBtn, unwatchedBtn, groupBtn, modeBtn]);
     var grid = el('div.grid', { 'data-group': '', 'data-no-memory': '' });
     var scroller = el('div.grid-scroll', { 'data-scroll': 'y-near', 'data-pad': '80' }, [grid]);
     var backdrop = SM.Backdrop();
@@ -36,6 +37,7 @@
       sortBtn.lastChild.textContent = SORTS.filter(function (s) { return s.id === state.sort; })[0].label;
       genreBtn.lastChild.textContent = state.genre || 'All genres';
       if (unwatchedBtn) unwatchedBtn.classList.toggle('active', state.unwatched);
+      if (groupBtn) groupBtn.classList.toggle('active', !!SM.settings.get('groupCollections'));
       modeBtn.lastChild.textContent = flowMode() ? 'Cover Flow' : 'Grid';
       root.classList.toggle('flow-mode', flowMode());
     }
@@ -72,6 +74,12 @@
       ui.menu('Genre', opts);
     }
 
+    /** Fold franchise movies into one collection cover (Movies only). */
+    function toggleGroup() {
+      SM.settings.set('groupCollections', !SM.settings.get('groupCollections'));
+      load(null, true);
+    }
+
     function toggleUnwatched() {
       state.unwatched = !state.unwatched;
       load();
@@ -103,7 +111,8 @@
       SM.util.clear(shelf);
       backdrop.set(null);
       var q = '?sort=' + state.sort + (state.genre ? '&genre=' + encodeURIComponent(state.genre) : '') +
-        (state.unwatched ? '&unwatched=true' : '');
+        (state.unwatched ? '&unwatched=true' : '') +
+        (kind === 'movies' && SM.settings.get('groupCollections') && !state.unwatched ? '&group=true' : '');
       SM.util.clear(flowMode() ? shelf : grid).appendChild(ui.spinner());
       var req = kind === 'movies' ? SM.api.movies(q) : SM.api.shows(q);
       return req.then(function (data) {
@@ -112,7 +121,8 @@
         rendered = 0;
         SM.util.clear(grid);
         SM.util.clear(shelf);
-        count.textContent = items.length + (kind === 'movies' ? ' movies' : ' shows');
+        var titles = items.reduce(function (n, it) { return n + (it.kind === 'collection' ? it.item_count : 1); }, 0);
+        count.textContent = SM.util.plural(titles, kind === 'movies' ? 'movie' : 'show');
         if (!items.length) {
           grid.appendChild(el('div.empty', [el('p', { text: 'Nothing here yet.' })]));
           return;
@@ -124,7 +134,7 @@
         }
         appendBatch();
         var target = keepFocusId && grid.querySelector('.card[data-id="' + keepFocusId + '"]');
-        SM.focus.claim(view, focusToolbar ? modeBtn : (target || grid.firstChild));
+        SM.focus.claim(view, focusToolbar ? (groupBtn || modeBtn) : (target || grid.firstChild));
       }, function (err) {
         var box = flowMode() ? shelf : grid;
         SM.util.clear(box).appendChild(ui.errorBox(err, function () { load(); }));

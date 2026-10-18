@@ -42,6 +42,14 @@
     function render() {
       var focusK = SM.focus.get() && SM.focus.get().dataset ? SM.focus.get().dataset.k : null;
       SM.util.clear(list);
+      if (S.get('profileName')) {
+        list.appendChild(header('Profile'));
+        list.appendChild(rowItem("Who's watching", S.get('profileName') + (S.get('profileKids') ? ' · Kids' : ''), function () {
+          SM.router.reset('profiles', {});
+        }, 'Switch profile, add one, or turn kids mode on or off', 'profile'));
+        list.appendChild(rowItem('Hidden titles', '', function () { SM.router.push('hidden', {}); },
+          'Hold OK on a title and choose Hide to keep it out of this profile', 'hidden'));
+      }
       list.appendChild(header('Playback'));
       list.appendChild(rowItem('Preferred audio language', langName(S.get('audioLanguage')), function () {
         pick('Audio language', 'audioLanguage', LANGS);

@@ -23,6 +23,7 @@
     var headers = body === undefined ? {} : { 'Content-Type': 'application/json' };
     var token = S.get('token');
     if (token) headers.Authorization = 'Bearer ' + token;
+    if (S.get('profileId')) headers['X-Samedia-Profile'] = S.get('profileId');
     var url = (opts.base !== undefined ? opts.base : base()) + path;
     return fetch(url, {
       method: method, headers: headers, signal: ctrl ? ctrl.signal : undefined,
@@ -132,6 +133,14 @@
     get: function (path, opts) { return request('GET', path, undefined, opts); },
     post: function (path, body, opts) { return request('POST', path, body || {}, opts); },
     home: function () { return request('GET', '/api/v1/home'); },
+    collection: function (id) { return request('GET', '/api/v1/collections/' + id); },
+    profiles: function () { return request('GET', '/api/v1/profiles'); },
+    createProfile: function (p) { return request('POST', '/api/v1/profiles', p); },
+    updateProfile: function (id, p) { return request('PUT', '/api/v1/profiles/' + id, p); },
+    deleteProfile: function (id) { return request('DELETE', '/api/v1/profiles/' + id); },
+    hidden: function () { return request('GET', '/api/v1/hidden'); },
+    hide: function (id) { return request('POST', '/api/v1/hidden', { id: id }); },
+    unhide: function (id) { return request('DELETE', '/api/v1/hidden/' + id); },
     movies: function (q) { return request('GET', '/api/v1/movies' + (q || '')); },
     shows: function (q) { return request('GET', '/api/v1/shows' + (q || '')); },
     show: function (id) { return request('GET', '/api/v1/shows/' + id); },

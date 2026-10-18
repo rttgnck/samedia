@@ -28,7 +28,7 @@
 
     var root = el('div.setup', [
       el('div.setup-card', [
-        el('div.brand', [el('span.logo', { text: 'S' }), el('span', { text: 'Samedia' })]),
+        el('div.brand', [el('img.logo', { src: 'icon.png', alt: '' }), el('span', { text: 'Samedia' })]),
         el('h1', { text: params.change ? 'Change server' : 'Connect to your media server' }),
         el('p.lead', { text: 'Run the Samedia server on your NAS (nasOS App Store → Samedia), then pick it below.' }),
         el('div.setup-cols', [
@@ -74,7 +74,7 @@
       S.set('token', token);
       S.set('serverName', info.name);
       ui.toast('Connected to ' + info.name);
-      SM.app.goHome();
+      SM.app.start(info);
     }
 
     function discover() {

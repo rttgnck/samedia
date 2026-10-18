@@ -100,7 +100,11 @@ window.SM = window.SM || {};
 
   var isTizen = typeof window.tizen !== 'undefined' && typeof window.webapis !== 'undefined';
 
+  /** "1 movie", "3 movies" */
+  function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
+
   SM.util = {
+    plural: plural,
     el: el, append: append, clear: clear, clock: clock, runtime: runtime, endsAt: endsAt,
     episodeCode: episodeCode, debounce: debounce, hue: hue, uid: uid, isTizen: isTizen,
   };

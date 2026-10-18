@@ -8,7 +8,8 @@
     var backdrop = SM.Backdrop();
     var body = el('div.show-body', [ui.spinner()]);
     var root = el('div.show', [backdrop, body]);
-    var view = { el: root };
+    var view = { el: root, ownerId: params.id };
+    view.contextItem = function () { return show; };
     var show = null, season = null;
     var epInfo = el('div.ep-info');
 

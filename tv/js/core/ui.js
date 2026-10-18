@@ -26,6 +26,11 @@
     sort: '<path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M17 20V4M13.5 7.5 17 4l3.5 3.5"/>',
     filter: '<path d="M3 5h18l-7 8.5V19l-4 2v-7.5z"/>',
     backspace: '<path d="M21 5H8.5L3 12l5.5 7H21z"/><path d="m12 9 6 6M18 9l-6 6"/>',
+    stack: '<rect x="6" y="3" width="13" height="16" rx="1.5"/><path d="M3.5 6.5V20a1.5 1.5 0 0 0 1.5 1.5h11"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    user: '<circle cx="12" cy="8.5" r="4"/><path d="M4 20.5c1.4-4 4.4-6 8-6s6.6 2 8 6"/>',
+    hide: '<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6C3.9 8.3 2 12 2 12s3.6 7 10 7a9.6 9.6 0 0 0 4.4-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+    logo: '<rect x="3" y="5" width="18" height="13" rx="2.5" fill="currentColor" stroke="none" opacity=".25"/><path d="M10 9v5.5l4.5-2.75z" fill="currentColor" stroke="none"/><path d="M8 21h8"/>',
     server: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   };
 
@@ -76,7 +81,8 @@
     opts = opts || {};
     var card = el('div.card.poster.f', { dataset: { id: item.id, kind: item.kind } }, [
       el('div.frame', [image(item.poster, 320, item.title, 'poster'), watchedMark(item), progressBar(item),
-        item.kind === 'show' && item.unwatched ? el('div.count', { text: String(item.unwatched) }) : null]),
+        item.kind === 'show' && item.unwatched ? el('div.count', { text: String(item.unwatched) }) : null,
+        item.kind === 'collection' ? el('div.count', { text: String(item.item_count) }) : null]),
       opts.caption === false ? null : el('div.caption', [
         el('div.title', { text: item.title }),
         el('div.sub', { text: item.year ? String(item.year) : '' }),
@@ -211,6 +217,39 @@
     });
   }
 
+  /** Text entry with the on-screen keyboard. Resolves the text, or null when cancelled. */
+  function prompt(title, initial, opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      var value = initial || '';
+      var box = el('div.input-box', { text: value || opts.placeholder || '' });
+      box.classList.toggle('empty', !value);
+      function shown(v) {
+        // Names read better capitalised: "nick" -> "Nick"
+        return opts.capitalize ? v.replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); }) : v;
+      }
+      var done = false;
+      function finish(v) {
+        if (done) return;
+        done = true;
+        SM.focus.popLayer(layer);
+        layer.remove();
+        resolve(v);
+      }
+      var kb = keyboard('text', value, function (v) {
+        value = shown(v);
+        kb.setValue(value);
+        box.textContent = value || opts.placeholder || '';
+        box.classList.toggle('empty', !value);
+      }, function () { finish(value.trim() ? value.trim().slice(0, opts.max || 24) : null); });
+      var layer = el('div.modal', [el('div.dialog.prompt', [el('h3', { text: title }), box, kb])]);
+      layer._close = function () { finish(null); };
+      layer._digit = function (d) { kb.handleDigit(d); };
+      document.getElementById('overlays').appendChild(layer);
+      SM.focus.pushLayer(layer);
+    });
+  }
+
   function topModal() {
     var o = document.getElementById('overlays');
     return o.lastElementChild && o.lastElementChild.classList.contains('modal') ? o.lastElementChild : null;
@@ -254,5 +293,6 @@
     icon: icon, image: image, placeholder: placeholder, posterCard: posterCard, landscapeCard: landscapeCard,
     episodeCard: episodeCard, row: row, button: button, badges: badges, spinner: spinner, errorBox: errorBox,
     toast: toast, menu: menu, confirm: confirm, topModal: topModal, keyboard: keyboard, progressBar: progressBar,
+    prompt: prompt,
   };
 })();

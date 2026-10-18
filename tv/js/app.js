@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.1.0';
+  SM.VERSION = '0.2.0';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -13,7 +13,9 @@
     { id: 'settings', label: 'Settings', icon: 'gear', view: 'settings' },
   ];
 
-  var nav, views, lastBack = 0;
+  var nav, views, lastBack = 0, profileItem = null;
+  var LONG_PRESS_MS = 600;
+  var enter = { down: 0, timer: null, long: false };
 
   function buildNav() {
     nav = el('nav.nav', { 'data-group': '' });
@@ -30,8 +32,27 @@
       });
       nav.appendChild(item);
     });
-    nav.appendChild(el('div.nav-brand', { text: 'S' }));
+    nav.appendChild(el('div.nav-brand', [el('img', { src: 'icon.png', alt: '' })]));
+    // Who's watching: avatar at the bottom of the rail; selecting it switches profile.
+    profileItem = el('div.nav-item.nav-profile.f', { onclick: function () { SM.router.reset('profiles', {}); } });
+    nav.appendChild(profileItem);
+    renderProfile();
     return nav;
+  }
+
+  function avatar(name, color, kids) {
+    return el('span.avatar' + (kids ? '.kids' : ''), { style: { background: color || 'var(--accent)' },
+      text: (name || '?').trim().charAt(0).toUpperCase() });
+  }
+
+  function renderProfile() {
+    if (!profileItem) return;
+    var name = SM.settings.get('profileName');
+    profileItem.classList.toggle('hidden', !name);
+    SM.util.clear(profileItem);
+    profileItem.appendChild(avatar(name, SM.settings.get('profileColor'), SM.settings.get('profileKids')));
+    var kidsTag = SM.settings.get('profileKids') && !/kid/i.test(name || '') ? ' · Kids' : '';
+    profileItem.appendChild(el('span', { text: name + kidsTag }));
   }
 
   function goSection(s, keepFocusInNav) {
@@ -61,9 +82,46 @@
     var action = SM.keys.action(e);
     if (!action) return;
     e.preventDefault();
+    if (action === 'enter') {
+      // OK acts on release so that holding it can open the title menu instead.
+      if (e.repeat || (enter.down && Date.now() - enter.down < 5000)) return;
+      enter.down = Date.now();
+      enter.long = false;
+      clearTimeout(enter.timer);
+      enter.timer = setTimeout(function () {
+        enter.long = true;
+        longPress();
+      }, LONG_PRESS_MS);
+      return;
+    }
+    dispatch(action, e);
+  }
 
+  function onKeyUp(e) {
+    if (SM.keys.action(e) !== 'enter' || !enter.down) return;
+    e.preventDefault();
+    clearTimeout(enter.timer);
+    var wasLong = enter.long;
+    enter.down = 0;
+    enter.long = false;
+    if (!wasLong) dispatch('enter', e);
+  }
+
+  /** Held OK / blue button: the title menu, when a title is focused and nothing else is open. */
+  function longPress() {
+    var item = !ui.topModal() && !SM.focus.hasLayer() ? SM.context.itemFromFocus() : null;
+    if (item) SM.context.open(item);
+    else dispatch('enter', null);
+  }
+
+  function dispatch(action, e) {
     var modal = ui.topModal();
     if (modal && action === 'back') { modal._close && modal._close(); return; }
+    if (modal && modal._digit && action.indexOf('digit:') === 0) { modal._digit(action.slice(6)); return; }
+    if (action === 'blue' && !modal && !SM.focus.hasLayer()) {
+      var item = SM.context.itemFromFocus();
+      if (item) { SM.context.open(item); return; }
+    }
 
     var top = SM.router.top();
     if (top && top.onKey && top.onKey(action, e)) return;
@@ -104,6 +162,29 @@
     SM.router.reset('home');
   }
 
+  function selectProfile(p) {
+    var S = SM.settings;
+    S.set('profileId', p.id);
+    S.set('profileName', p.name);
+    S.set('profileColor', p.color);
+    S.set('profileKids', !!p.kids);
+    SM.events.emit('profile', p);
+  }
+
+  /** After connecting: pick who's watching when there's more than one profile. */
+  function start(info) {
+    if (!info || (info.features || []).indexOf('profiles') === -1) { goHome(); return; }
+    SM.api.profiles().then(function (r) {
+      var list = r.profiles || [];
+      if (list.length === 1) {
+        selectProfile(list[0]);
+        goHome();
+      } else {
+        SM.router.reset('profiles', {});
+      }
+    }, function () { goHome(); });
+  }
+
   function boot() {
     SM.keys.register();
     views = el('main.views');
@@ -125,6 +206,9 @@
       SM.router.reset('setup', { change: false });
     });
     document.addEventListener('keydown', onKey);
+    document.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', function () { clearTimeout(enter.timer); enter.down = 0; enter.long = false; });
+    SM.events.on('profile', renderProfile);
     // Expand the rail while it has focus (CSS :has() is not available on Tizen 6.5's Chromium).
     document.addEventListener('focus:sk', function (e) {
       nav.classList.toggle('open', nav.contains(e.target));
@@ -141,14 +225,14 @@
     }
     SM.api.probe(SM.settings.get('server')).then(function (info) {
       SM.settings.set('serverName', info.name);
-      goHome();
+      start(info);
     }, function () {
       goHome(); // home shows the error with a retry button; settings still reachable via the rail
       ui.toast('Cannot reach ' + (SM.settings.get('serverName') || 'the server') + ' — is the NAS on?', 6000);
     });
   }
 
-  SM.app = { goHome: goHome };
+  SM.app = { goHome: goHome, start: start, selectProfile: selectProfile, avatar: avatar };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();

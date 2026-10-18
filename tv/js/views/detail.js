@@ -74,6 +74,15 @@
       });
     }
 
+    function credits(it) {
+      var cast = (it.cast || []).slice(0, 6).map(function (c) { return c.name; });
+      if (!it.director && !cast.length) return null;
+      return el('div.detail-credits', [
+        it.director ? el('div', [el('span.k', { text: 'Director' }), el('span', { text: it.director })]) : null,
+        cast.length ? el('div', [el('span.k', { text: 'Starring' }), el('span', { text: cast.join(', ') })]) : null,
+      ]);
+    }
+
     function render() {
       var focusedLabel = SM.focus.get() && SM.focus.get().dataset ? SM.focus.get().dataset.k : null;
       var isEp = item.kind === 'episode';
@@ -101,10 +110,15 @@
         showBtn.dataset.k = 'show';
         buttons.push(showBtn);
       }
+      // Same menu as holding OK: hide, collection, watched...
+      var moreBtn = ui.button('More', 'info', function () { SM.context.open(item); });
+      moreBtn.dataset.k = 'more';
+      buttons.push(moreBtn);
 
       var meta = [];
       if (isEp) meta.push(SM.util.episodeCode(item));
       if (item.year && !isEp) meta.push(String(item.year));
+      if (item.certification) meta.push(item.certification);
       if (item.duration) meta.push(SM.util.runtime(item.duration));
       if (item.rating) meta.push('★ ' + item.rating);
       if (item.genres && item.genres.length) meta.push(item.genres.join(', '));
@@ -114,8 +128,10 @@
       body.appendChild(el('div.detail-info', [
         isEp ? el('div.eyebrow', { text: item.show_title }) : null,
         el('h1.detail-title', { text: item.title }),
+        item.tagline ? el('div.detail-tagline', { text: item.tagline }) : null,
         el('div.detail-meta', [el('span', { text: meta.join('   ·   ') }), ui.badges(item.badges)]),
-        item.plot ? el('p.detail-plot', { text: item.plot }) : null,
+        item.plot ? el('p.detail-plot' + (item.cast && item.cast.length ? '.short' : ''), { text: item.plot }) : null,
+        credits(item),
         el('div.actions', { 'data-group': '' }, buttons),
         el('div.tech', { text: techLine(item) }),
         el('div.tech.file', { text: item.file }),
@@ -142,6 +158,7 @@
     }
 
     view.refresh = load;
+    view.contextItem = function () { return item; };
     view.onKey = function (action) {
       if ((action === 'play' || action === 'playpause') && item) {
         play(item.position > 30);

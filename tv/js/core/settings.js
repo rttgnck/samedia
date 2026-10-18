@@ -8,6 +8,11 @@
     server: '',                 // "http://192.168.1.20:8097"
     token: '',
     serverName: '',
+    profileId: '',              // who's watching (server profile id)
+    profileName: '',
+    profileColor: '',
+    profileKids: false,
+    groupCollections: true,     // fold franchise movies into one collection in Movies
     audioLanguage: 'en',        // preferred audio language (ISO 639-1 prefix)
     subtitleMode: 'auto',       // off | forced | auto (on when audio isn't your language) | always
     subtitleLanguage: 'en',

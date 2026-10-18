@@ -41,10 +41,13 @@
 
     function cover(i) {
       var it = items[i];
+      var isCol = it.kind === 'collection';
       var front = el('div.cf-front', [ui.image(it.poster, 400, it.title, 'poster'),
-        it.watched ? el('div.watched', [ui.icon('check')]) : null, ui.progressBar(it)]);
+        it.watched ? el('div.watched', [ui.icon('check')]) : null, ui.progressBar(it),
+        isCol ? el('div.count', { text: String(it.item_count) }) : null,
+        it.kind === 'show' && it.unwatched ? el('div.count', { text: String(it.unwatched) }) : null]);
       var back = el('div.cf-back');
-      var node = el('div.cf-cover', { dataset: { i: String(i) } }, [el('div.cf-card', [front, back])]);
+      var node = el('div.cf-cover' + (isCol ? '.stack' : ''), { dataset: { i: String(i) } }, [el('div.cf-card', [front, back])]);
       node.addEventListener('click', function (e) {
         if (e.target.closest('.cf-back')) return;
         if (i === index) toggleFlip();
@@ -81,8 +84,13 @@
       var it = items[index];
       title.textContent = it ? it.title : '';
       var bits = [];
-      if (it) {
+      if (it && it.kind === 'collection') {
+        bits.push(it.item_count + ' movies');
+        if (it.years) bits.push(it.years);
+      } else if (it) {
+        if (it.kind === 'episode') bits.push(it.show_title + ' · ' + SM.util.episodeCode(it));
         if (it.year) bits.push(String(it.year));
+        if (it.certification) bits.push(it.certification);
         if (it.kind === 'show' && it.episode_count) bits.push(it.episode_count + ' episodes');
         if (it.duration) bits.push(SM.util.runtime(it.duration));
         if (it.rating) bits.push('★ ' + it.rating);
@@ -111,10 +119,12 @@
       if (!node || !it) return;
       var back = node.querySelector('.cf-back');
       var actions = el('div.cf-actions', { 'data-group': '' });
+      var isCol = it.kind === 'collection';
       SM.util.clear(back).appendChild(el('div.cf-back-inner', [
         el('div.cf-back-title', { text: it.title }),
-        el('div.cf-back-meta', { text: [it.year, it.kind === 'show' ? (it.episode_count + ' episodes') : SM.util.runtime(it.duration),
-          (it.genres || []).slice(0, 2).join(', ')].filter(Boolean).join('  ·  ') }),
+        el('div.cf-back-meta', { text: (isCol ? [it.item_count + ' movies', it.years]
+          : [it.year, it.certification, it.kind === 'show' ? (it.episode_count + ' episodes') : SM.util.runtime(it.duration),
+             (it.genres || []).slice(0, 2).join(', ')]).filter(Boolean).join('  ·  ') }),
         el('p.cf-back-plot', { text: it.plot || 'No description available.' }),
         actions,
       ]));
@@ -122,7 +132,8 @@
       var play = el('div.cf-btn.f.primary.autofocus', { onclick: function () { opts.onPlay && opts.onPlay(it, true); } },
         [ui.icon('play'), el('span', { text: it.kind === 'show' ? 'Play' : (resumable ? 'Resume' : 'Play') })]);
       var info = el('div.cf-btn.f', { onclick: function () { unflip(); opts.onOpen && opts.onOpen(it); } },
-        [ui.icon(it.kind === 'show' ? 'tv' : 'info'), el('span', { text: it.kind === 'show' ? 'Episodes' : 'Details' })]);
+        [ui.icon(it.kind === 'show' ? 'tv' : isCol ? 'stack' : 'info'),
+         el('span', { text: it.kind === 'show' ? 'Episodes' : isCol ? 'All ' + it.item_count + ' movies' : 'Details' })]);
       actions.appendChild(play);
       actions.appendChild(info);
       node.classList.add('flipped');
@@ -171,7 +182,7 @@
       layout();
     }
 
-    return {
+    var api = {
       el: root, handleKey: handleKey, setIndex: setIndex,
       index: function () { return index; }, current: function () { return items[index]; },
       isFlipped: function () { return !!flipped; },
@@ -179,6 +190,8 @@
         for (var i = 0; i < items.length; i++) if (items[i].id === id) { setIndex(i); return; }
       },
     };
+    root._flow = api; // lets the title menu find the centre cover
+    return api;
   }
 
   SM.CoverFlow = CoverFlow;
