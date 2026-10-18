@@ -129,7 +129,7 @@
         actions,
       ]));
       var resumable = it.position > 30 && !it.watched;
-      var play = el('div.cf-btn.f.primary.autofocus', { onclick: function () { opts.onPlay && opts.onPlay(it, true); } },
+      var play = el('div.cf-btn.f.primary.autofocus', { onclick: function () { unflip(); opts.onPlay && opts.onPlay(it, true); } },
         [ui.icon('play'), el('span', { text: it.kind === 'show' ? 'Play' : (resumable ? 'Resume' : 'Play') })]);
       var info = el('div.cf-btn.f', { onclick: function () { unflip(); opts.onOpen && opts.onOpen(it); } },
         [ui.icon(it.kind === 'show' ? 'tv' : isCol ? 'stack' : 'info'),
@@ -159,7 +159,7 @@
     function handleKey(action) {
       if (flipped) {
         if (action === 'back') { unflip(); return true; }
-        if (action === 'play' || action === 'playpause') { opts.onPlay && opts.onPlay(items[index], true); return true; }
+        if (action === 'play' || action === 'playpause') { unflip(); opts.onPlay && opts.onPlay(items[index], true); return true; }
         return false; // arrows / OK work inside the back face via the focus layer
       }
       switch (action) {

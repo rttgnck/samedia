@@ -26,7 +26,9 @@ html, body {
   font-family: "SamsungOne", "Samsung Sans", "Tizen Sans", "Helvetica Neue", Roboto, Arial, sans-serif;
   -webkit-font-smoothing: antialiased; user-select: none; cursor: default;
 }
-body.playing, body.playing #app, body.playing .shell, body.playing .views { background: transparent !important; }
+/* Video is drawn on a plane *behind* the page: every layer above it must be transparent,
+   including the root element (its background paints the whole canvas). */
+html.playing, body.playing, body.playing #app, body.playing .shell, body.playing .views { background: transparent !important; }
 #app { width: 1920px; height: 1080px; position: relative; transform-origin: 0 0; overflow: hidden; }
 .hidden { display: none !important; }
 

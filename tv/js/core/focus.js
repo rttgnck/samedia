@@ -175,6 +175,11 @@
 
   function hasLayer() { return layers.length > 0; }
 
+  /** Forget focus layers inside `scope` (a view being covered) without moving focus. */
+  function dropLayersWithin(scope) {
+    layers = layers.filter(function (l) { return !scope.contains(l); });
+  }
+
   /** Drop focus (e.g. leaving the nav rail) so content that loads later can claim it. */
   function release() {
     if (current) current.classList.remove('focused');
@@ -191,6 +196,6 @@
   SM.focus = {
     set: set, get: get, move: move, focusFirst: focusFirst, setBaseRoot: setBaseRoot,
     pushLayer: pushLayer, popLayer: popLayer, hasLayer: hasLayer, ensureVisible: ensureVisible,
-    groupEntry: groupEntry, claim: claim, release: release,
+    groupEntry: groupEntry, claim: claim, release: release, dropLayersWithin: dropLayersWithin,
   };
 })();

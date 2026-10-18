@@ -28,6 +28,9 @@
 
   function hide(entry) {
     entry.focus = SM.focus.get();
+    // A flipped Cover Flow back face (or similar) must not keep the remote captive
+    // while another screen (e.g. the player) is on top.
+    SM.focus.dropLayersWithin(entry.el);
     entry.el.classList.add('hidden');
     entry.onHide && entry.onHide();
   }

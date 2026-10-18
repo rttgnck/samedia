@@ -432,12 +432,12 @@
       return false;
     };
 
-    view.onShow = function () {
-      document.body.classList.add('playing');
-    };
-    view.onHide = function () {
-      document.body.classList.remove('playing');
-    };
+    function setPlayingClass(on) {
+      document.documentElement.classList.toggle('playing', on);
+      document.body.classList.toggle('playing', on);
+    }
+    view.onShow = function () { setPlayingClass(true); };
+    view.onHide = function () { setPlayingClass(false); };
 
     function onVisibility() {
       if (!backend) return;
@@ -456,7 +456,7 @@
       clearTimeout(scrubTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       if (backend) backend.stop();
-      document.body.classList.remove('playing');
+      setPlayingClass(false);
       SM.router.markStale();
     };
 

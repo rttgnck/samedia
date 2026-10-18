@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.2.0';
+  SM.VERSION = '0.2.1';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -209,6 +209,17 @@
     document.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', function () { clearTimeout(enter.timer); enter.down = 0; enter.long = false; });
     SM.events.on('profile', renderProfile);
+    // Tizen keeps the app alive in the background: coming back after a while (e.g. once the
+    // server has fetched posters and plots) should show fresh data without restarting the app.
+    var hiddenAt = 0;
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { hiddenAt = Date.now(); return; }
+      var top = SM.router.top();
+      if (hiddenAt && Date.now() - hiddenAt > 30000 && top && top.refresh && top.name !== 'player') {
+        SM.router.markStale();
+        top.refresh();
+      }
+    });
     // Expand the rail while it has focus (CSS :has() is not available on Tizen 6.5's Chromium).
     document.addEventListener('focus:sk', function (e) {
       nav.classList.toggle('open', nav.contains(e.target));
