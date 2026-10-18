@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - run: pip install -r server/requirements.txt pytest httpx && cd server && python -m pytest -q
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
