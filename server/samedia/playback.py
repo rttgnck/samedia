@@ -160,9 +160,14 @@ def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, sta
     elif force == "hls":
         mode = "hls"
     elif force == "remux" or not (container_ok and audio_ok):
-        mode = "remux"
+        # players that seek well in segments (iPhone/iPad) get those rather than a one-way stream
+        mode = "hls" if caps.get("prefer_hls") and hls_ok and force != "remux" else "remux"
     else:
         mode = "direct"
+    # MPEG-TS output must carry a video codec the player takes there (Apple: H.264 only)
+    if mode == "remux" and video and video["codec"] not in caps.get("ts_video", caps["video"]):
+        mode = "transcode"
+        reasons.append(f"video {video['codec']} not supported in a stream")
     if force:
         reasons.append(f"forced {force}")
 
