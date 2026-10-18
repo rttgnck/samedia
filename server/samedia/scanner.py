@@ -87,6 +87,9 @@ class Scanner:
             self._remove_missing({str(f) for _, f in files}, reachable)
             self._refresh_sidecars(files)
             self._refresh_show_art()
+            self._enrich_pending()
+            self.status["phase"] = "collections"
+            self._refresh_collections()
         finally:
             self.status.update(running=False, phase="idle", current=None, last_finished=time.time())
             self._lock.release()
@@ -107,8 +110,15 @@ class Scanner:
         except Exception:
             log.exception("failed to index %s", path)
 
+    @staticmethod
+    def _video_siblings(path: Path, root: Path) -> int:
+        if path.parent == root:
+            return 99
+        return sum(1 for p in path.parent.iterdir()
+                   if p.suffix.lower() in naming.VIDEO_EXTS and not p.name.startswith("."))
+
     def _index_file(self, root: Path, path: Path, st: os.stat_result) -> None:
-        parsed = naming.parse(path, root)
+        parsed = naming.parse(path, root, folder_exclusive=self._video_siblings(path, root) == 1)
         media = probe.probe(path) if path.suffix.lower() != ".iso" else None
         item_id = make_id("m" if parsed.kind == "movie" else "e", str(path))
         existing = db.one("SELECT added_at FROM items WHERE id=?", (item_id,))
@@ -121,20 +131,7 @@ class Scanner:
         }
 
         if parsed.kind == "movie":
-            meta = {"title": parsed.title, "year": parsed.year}
-            siblings = sum(1 for p in path.parent.iterdir() if p.suffix.lower() in naming.VIDEO_EXTS) \
-                if path.parent != root else 99
-            art = metadata.movie_art(path, folder_is_exclusive=siblings <= 2)
-            nfo = metadata.movie_nfo(path)
-            meta.update(nfo)
-            if not (art["poster"] and art["backdrop"] and nfo.get("plot")):
-                remote = metadata.tmdb.movie(meta["title"], meta.get("year"), nfo.get("tmdb_id"))
-                for k, v in remote.items():
-                    if k in ("poster", "backdrop"):
-                        art[k] = art[k] or v
-                    elif k not in nfo:
-                        meta[k] = v
-            values.update(meta, **art)
+            values.update(self._movie_metadata(path, root, parsed))
         else:
             show_id = self._ensure_show(parsed)
             show = db.one("SELECT tmdb_id FROM shows WHERE id=?", (show_id,))
@@ -143,6 +140,8 @@ class Scanner:
             nfo = metadata.episode_nfo(path)
             meta.update({k: v for k, v in nfo.items() if k != "year"})
             art = metadata.episode_art(path)
+            if metadata.tmdb.enabled:
+                meta["meta_at"] = time.time()
             if show and show["tmdb_id"] and not (nfo.get("plot") and art["thumb"]):
                 remote = metadata.tmdb.episode(show["tmdb_id"], parsed.season, parsed.episode)
                 if remote.get("thumb") and not art["thumb"]:
@@ -161,28 +160,174 @@ class Scanner:
 
     _show_lock = threading.Lock()
 
+    # Columns filled from .nfo / local art / TMDB (refreshed when metadata is re-fetched)
+    MOVIE_META_COLS = ("title", "sort_title", "year", "plot", "tagline", "rating", "genres", "poster", "backdrop",
+                       "certification", "cast_members", "director", "collection_hint", "tmdb_id", "meta_at")
+    SHOW_META_COLS = ("title", "sort_title", "year", "plot", "rating", "genres", "poster", "backdrop",
+                      "certification", "cast_members", "tmdb_id", "meta_at")
+
+    def _movie_metadata(self, path: Path, root: Path, parsed: naming.Parsed) -> dict:
+        """.nfo beats TMDB for text; local artwork beats TMDB artwork."""
+        meta: dict = {"title": parsed.title, "year": parsed.year}
+        art = metadata.movie_art(path, folder_is_exclusive=self._video_siblings(path, root) <= 2)
+        nfo = metadata.movie_nfo(path)
+        meta.update(nfo)
+        if metadata.tmdb.enabled:
+            remote = metadata.tmdb.movie(meta["title"], meta.get("year"), nfo.get("tmdb_id"))
+            for k, v in remote.items():
+                if k in ("poster", "backdrop"):
+                    art[k] = art[k] or v
+                elif k == "collection_hint":
+                    meta[k] = {**v, **(nfo.get(k) or {})}
+                elif k not in nfo:
+                    meta[k] = v
+            meta["meta_at"] = time.time()
+        meta["sort_title"] = naming.sort_title(meta["title"])
+        return {**meta, **art}
+
+    def _show_metadata(self, show_dir: Path, title: str, year: int | None) -> dict:
+        meta: dict = {"title": title, "year": year}
+        nfo = metadata.show_nfo(show_dir) if show_dir.exists() else {}
+        meta.update(nfo)
+        art = metadata.show_art(show_dir)
+        if metadata.tmdb.enabled:
+            remote = metadata.tmdb.show(meta["title"], meta.get("year"), nfo.get("tmdb_id"))
+            for k, v in remote.items():
+                if k in ("poster", "backdrop"):
+                    art[k] = art[k] or v
+                elif k not in nfo:
+                    meta[k] = v
+            meta["meta_at"] = time.time()
+        meta["sort_title"] = naming.sort_title(meta["title"])
+        return {**meta, **art}
+
+    @staticmethod
+    def _update(table: str, row_id: str, values: dict, cols: tuple[str, ...]) -> None:
+        values = db._encode({k: v for k, v in values.items() if k in cols})
+        if values:
+            db.execute(f"UPDATE {table} SET {', '.join(f'{k}=?' for k in values)} WHERE id=?",
+                       (*values.values(), row_id))
+
+    def _enrich_pending(self) -> None:
+        """Fetch TMDB metadata for titles indexed before a TMDB key was set (or reset for a refresh)."""
+        if not metadata.tmdb.enabled:
+            return
+        movies = db.query("SELECT id, path, root FROM items WHERE kind='movie' AND meta_at IS NULL")
+        shows = db.query("SELECT id, path, title, year FROM shows WHERE meta_at IS NULL")
+        if not movies and not shows:
+            return
+        self.status.update(phase="metadata", found=len(movies) + len(shows), processed=0)
+
+        def movie(row):
+            path, root = Path(row["path"]), Path(row["root"])
+            if path.exists():
+                parsed = naming.parse(path, root, folder_exclusive=self._video_siblings(path, root) == 1)
+                self._update("items", row["id"], self._movie_metadata(path, root, parsed), self.MOVIE_META_COLS)
+
+        def show(row):
+            self._update("shows", row["id"], self._show_metadata(Path(row["path"]), row["title"], row["year"]),
+                         self.SHOW_META_COLS)
+            sh = db.one("SELECT tmdb_id FROM shows WHERE id=?", (row["id"],))
+            for ep in db.query("SELECT id, season, episode FROM items WHERE show_id=? AND meta_at IS NULL",
+                               (row["id"],)):
+                remote = metadata.tmdb.episode(sh["tmdb_id"], ep["season"], ep["episode"]) if sh["tmdb_id"] else {}
+                values = {"meta_at": time.time(), **{k: v for k, v in remote.items() if k in ("title", "plot", "rating")}}
+                if remote.get("thumb"):
+                    db.execute("UPDATE items SET thumb=COALESCE(thumb, ?) WHERE id=?", (remote["thumb"], ep["id"]))
+                self._update("items", ep["id"], values, ("title", "plot", "rating", "meta_at"))
+
+        def run(task):
+            fn, row = task
+            try:
+                fn(row)
+            except Exception:
+                log.exception("metadata refresh failed for %s", row.get("path"))
+            self.status["processed"] += 1
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(run, [(movie, m) for m in movies] + [(show, s) for s in shows]))
+
+    # ── collections ─────────────────────────────────────────────────
+
+    GENERIC_DIRS = {"movies", "movie", "films", "film", "4k", "uhd", "hd", "1080p", "720p", "2160p", "media",
+                    "videos", "video", "kids", "children", "family", "new", "misc", "other", "downloads",
+                    "complete", "completed", "collections", "library"}
+    FOLDER_COLLECTION_MAX = 12   # a folder with more movies than this is a library folder, not a franchise
+
+    def _refresh_collections(self) -> None:
+        """Group movies: a franchise folder > a .nfo <set> > a TMDB collection (when 2+ are in the library)."""
+        movies = db.query("SELECT id, path, root, collection_hint FROM items WHERE kind='movie'")
+        under: dict[Path, int] = {}
+        chains: dict[str, list[Path]] = {}
+        for m in movies:
+            path, root = Path(m["path"]), Path(m["root"])
+            chain = [d for d in path.parents if d != root and root in d.parents]
+            chains[m["id"]] = chain
+            for d in chain:
+                under[d] = under.get(d, 0) + 1
+
+        groups: dict[str, dict] = {}
+
+        def add(key: str, info: dict, movie_id: str) -> None:
+            g = groups.setdefault(key, {**info, "members": []})
+            g["members"].append(movie_id)
+
+        for m in movies:
+            chain = chains[m["id"]]
+            if chain and under[chain[0]] == 1:
+                chain = chain[1:]          # the movie's own folder isn't a collection
+            folder = next((d for d in chain if 2 <= under[d] <= self.FOLDER_COLLECTION_MAX
+                           and d.name.lower() not in self.GENERIC_DIRS), None)
+            hint = m.get("collection_hint") or {}
+            if folder:
+                add(f"folder:{folder}", {"name": naming.clean(folder.name) or folder.name, "source": "folder",
+                                         "folder": folder}, m["id"])
+            elif hint.get("nfo"):
+                add(f"nfo:{hint['nfo'].strip().lower()}", {"name": hint["nfo"].strip(), "source": "nfo"}, m["id"])
+            elif hint.get("tmdb"):
+                t = hint["tmdb"]
+                add(f"tmdb:{t['id']}", {"name": t.get("name") or "Collection", "source": "tmdb", "tmdb": t}, m["id"])
+
+        hints = {m["id"]: m.get("collection_hint") or {} for m in movies}
+        assigned: dict[str, str] = {}
+        keep: set[str] = set()
+        for key, g in groups.items():
+            if len(g["members"]) < 2:
+                continue                    # a "collection" of one is just a movie
+            cid = make_id("c", key)
+            keep.add(cid)
+            poster = backdrop = None
+            if g["source"] == "folder":
+                art = metadata.show_art(g["folder"])   # poster.jpg / folder.jpg / fanart.jpg in the folder
+                poster, backdrop = art["poster"], art["backdrop"]
+            # Any member's TMDB collection art fills the gaps
+            tmdb_hint = next((hints[mid]["tmdb"] for mid in g["members"] if hints[mid].get("tmdb")), None)
+            if tmdb_hint:
+                poster, backdrop = poster or tmdb_hint.get("poster"), backdrop or tmdb_hint.get("backdrop")
+            db.upsert("collections", {
+                "id": cid, "name": g["name"], "sort_title": naming.sort_title(g["name"]), "source": g["source"],
+                "poster": poster, "backdrop": backdrop, "tmdb_id": (tmdb_hint or {}).get("id"),
+            })
+            for mid in g["members"]:
+                assigned[mid] = cid
+
+        for m in movies:
+            db.execute("UPDATE items SET collection_id=? WHERE id=? AND COALESCE(collection_id,'') != COALESCE(?, '')",
+                       (assigned.get(m["id"]), m["id"], assigned.get(m["id"])))
+        if keep:
+            marks = ",".join("?" for _ in keep)
+            db.execute(f"DELETE FROM collections WHERE id NOT IN ({marks})", tuple(keep))
+        else:
+            db.execute("DELETE FROM collections")
+
     def _ensure_show(self, parsed: naming.Parsed) -> str:
         show_path = str(parsed.show_dir)
         show_id = make_id("s", show_path)
         with self._show_lock:
             if db.one("SELECT id FROM shows WHERE id=?", (show_id,)):
                 return show_id
-            show_dir = Path(show_path)
-            meta = {"title": parsed.show_title, "year": parsed.year}
-            nfo = metadata.show_nfo(show_dir) if show_dir.exists() else {}
-            meta.update(nfo)
-            art = metadata.show_art(show_dir)
-            if not (art["poster"] and art["backdrop"] and nfo.get("plot") and nfo.get("tmdb_id")):
-                remote = metadata.tmdb.show(meta["title"], meta.get("year"), nfo.get("tmdb_id"))
-                for k, v in remote.items():
-                    if k in ("poster", "backdrop"):
-                        art[k] = art[k] or v
-                    elif k not in nfo:
-                        meta[k] = v
-            db.upsert("shows", {
-                "id": show_id, "path": show_path, "sort_title": naming.sort_title(meta["title"]),
-                "added_at": time.time(), **meta, **art,
-            })
+            values = self._show_metadata(Path(show_path), parsed.show_title, parsed.year)
+            db.upsert("shows", {"id": show_id, "path": show_path, "added_at": time.time(), **values})
             return show_id
 
     def _remove_missing(self, present: set[str], reachable: list[Path]) -> None:

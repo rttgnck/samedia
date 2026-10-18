@@ -48,3 +48,14 @@ def test_hidden_and_appledouble_files_are_ignored():
     assert is_ignored(Path("/media/Movies/._Dune.Part.Two.2024.mkv"), root)
     assert is_ignored(Path("/media/.hidden.mkv"), root)
     assert not is_ignored(Path("/media/Movies/Dune.Part.Two.2024.mkv"), root)
+
+
+def test_folder_per_movie_name_wins_over_abbreviated_file():
+    from pathlib import Path
+    from samedia.naming import parse
+    root = Path("/m")
+    p = Path("/m/Mission Impossible (1996)/MI.1996.1080p.mkv")
+    assert (parse(p, root, folder_exclusive=True).title, parse(p, root, folder_exclusive=True).year) == ("Mission Impossible", 1996)
+    # A shared folder ("Movies 2024") is not a title
+    q = Path("/m/Movies 2024/Dune.Part.Two.2024.mkv")
+    assert parse(q, root, folder_exclusive=False).title == "Dune Part Two"

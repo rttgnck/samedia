@@ -49,6 +49,7 @@
         <div class="stat"><b id="nMovies">–</b><span>Movies</span></div>
         <div class="stat"><b id="nShows">–</b><span>TV shows</span></div>
         <div class="stat"><b id="nEps">–</b><span>Episodes</span></div>
+        <div class="stat"><b id="nCols">–</b><span>Collections</span></div>
         <div class="stat"><b id="nStreams">–</b><span>Active conversions</span></div>
       </div>
       <div style="margin-top:18px" class="row">
@@ -72,8 +73,10 @@
       <input id="server_name">
       <label>PIN <small>— leave empty for no PIN (anyone on your network can browse)</small></label>
       <input id="pinSetting" type="text" inputmode="numeric">
-      <label>TMDB API key <small>— optional; fetches posters and plots when no .nfo / local art exists</small></label>
-      <input id="tmdb_key" placeholder="v3 API key or v4 read access token">
+      <label>TMDB API key <small>— optional; covers, plots, cast, age ratings (for kids profiles) and collections.
+        Stored only on this server; a saved key shows as ••••1234.</small></label>
+      <div class="row"><input id="tmdb_key" placeholder="v3 API key or v4 read access token" autocomplete="off" style="flex:1">
+        <button class="ghost" id="refreshMetaBtn" title="Fetch TMDB details again for every title">Refresh metadata</button></div>
       <label>Rescan every (hours)</label>
       <input id="scan_interval_hours" type="number" min="0.25" step="0.25" style="max-width:140px">
       <label>Dolby Digital+ bitrate for converted DTS / TrueHD audio</label>
@@ -141,6 +144,7 @@ async function refresh() {
   $("ver").textContent = "Version " + s.version;
   $("nMovies").textContent = s.stats.movies; $("nShows").textContent = s.stats.shows;
   $("nEps").textContent = s.stats.episodes; $("nStreams").textContent = s.streams;
+  $("nCols").textContent = s.stats.collections ?? "–";
   $("roots").innerHTML = s.roots.map(r => `<div class="root"><span></span><span class="${r.reachable ? "ok" : "bad"}">${r.reachable ? "reachable" : "not found"}</span></div>`).join("");
   [...$("roots").querySelectorAll(".root span:first-child")].forEach((el, i) => el.textContent = s.roots[i].path);
   const sc = s.scan;
@@ -152,6 +156,11 @@ async function refresh() {
 }
 
 $("scanBtn").onclick = async () => { await api("/api/v1/admin/scan", { method: "POST" }); refresh(); };
+$("refreshMetaBtn").onclick = async () => {
+  try { await api("/api/v1/admin/refresh-metadata", { method: "POST" }); $("saveText").textContent = "Refreshing metadata…"; }
+  catch (e) { $("saveText").textContent = "Save a TMDB key first"; }
+  refresh();
+};
 $("saveBtn").onclick = async () => {
   const body = {
     server_name: $("server_name").value.trim() || "Samedia", pin: $("pinSetting").value.trim(),

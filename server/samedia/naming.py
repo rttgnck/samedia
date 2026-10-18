@@ -46,6 +46,8 @@ class Parsed:
 
 
 def clean(name: str) -> str:
+    # Leading site / release-group tags: "[UsaBit com] Pirates of Silicon Valley"
+    name = re.sub(r"^\s*(?:\[[^\]]*\]\s*)+", "", name)
     name = _JUNK.sub("", name)
     name = re.sub(r"[._]", " ", name)
     name = re.sub(r"\s+", " ", name)
@@ -105,7 +107,8 @@ def _same_name(a: str, b: str) -> bool:
     return bool(na and nb) and (na.startswith(nb) or nb.startswith(na))
 
 
-def parse(path: Path, root: Path) -> Parsed:
+def parse(path: Path, root: Path, folder_exclusive: bool = False) -> Parsed:
+    """folder_exclusive: the video's folder holds only this movie (folder-per-movie layout)."""
     stem = path.stem
     for pattern in _EPISODE_PATTERNS:
         m = pattern.search(stem)
@@ -144,7 +147,7 @@ def parse(path: Path, root: Path) -> Parsed:
 
     # Folder-per-movie layouts usually name the folder better than the file.
     name = stem
-    if path.parent != root and _YEAR.search(path.parent.name) and not _YEAR.search(stem):
+    if path.parent != root and _YEAR.search(path.parent.name) and (folder_exclusive or not _YEAR.search(stem)):
         name = path.parent.name
     title, year = split_title_year(name)
     return Parsed(kind="movie", title=title or stem, year=year)

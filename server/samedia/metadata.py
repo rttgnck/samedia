@@ -7,10 +7,12 @@ Artwork is stored as a reference string:
 
 import json
 import logging
+import re
 import threading
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from .config import config
@@ -18,6 +20,26 @@ from .config import config
 log = logging.getLogger("samedia.metadata")
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+
+# Age ratings a kids profile may see (US MPAA + US TV Parental Guidelines).
+KIDS_CERTIFICATIONS = ("G", "PG", "TV-Y", "TV-Y7", "TV-Y7-FV", "TV-G", "TV-PG")
+_CERT_PREFIX = re.compile(r"^(?:rated\s+|us\s*:\s*|usa\s*:\s*)", re.I)
+_KNOWN_CERTS = {"G", "PG", "PG-13", "R", "NC-17", "NR", "UNRATED", "TV-Y", "TV-Y7", "TV-Y7-FV", "TV-G", "TV-PG",
+                "TV-14", "TV-MA"}
+
+
+def normalize_certification(value: str | None) -> str | None:
+    """'Rated PG-13', 'US:PG-13', 'pg-13' -> 'PG-13'. Non-US or unknown ratings -> None."""
+    if not value:
+        return None
+    v = _CERT_PREFIX.sub("", value.strip()).upper().replace(" ", "")
+    v = {"TVY": "TV-Y", "TVY7": "TV-Y7", "TVG": "TV-G", "TVPG": "TV-PG", "TV14": "TV-14", "TVMA": "TV-MA",
+         "PG13": "PG-13", "NC17": "NC-17"}.get(v, v)
+    return v if v in _KNOWN_CERTS else None
+
+
+def kids_safe(certification: str | None) -> bool:
+    return certification in KIDS_CERTIFICATIONS
 
 
 # ── NFO ─────────────────────────────────────────────────────────────
@@ -65,6 +87,20 @@ def read_nfo(path: Path) -> dict:
             out["tmdb_id"] = int(uid.text.strip())
     if "tmdb_id" not in out and (tmdb := _text(root, "tmdbid")) and tmdb.isdigit():
         out["tmdb_id"] = int(tmdb)
+    if cert := normalize_certification(_text(root, "mpaa") or _text(root, "certification")):
+        out["certification"] = cert
+    if tagline := _text(root, "tagline"):
+        out["tagline"] = tagline
+    if director := _text(root, "director"):
+        out["director"] = director
+    cast = [{"name": _text(a, "name"), "role": _text(a, "role")} for a in root.findall("actor")]
+    cast = [c for c in cast if c["name"]][:12]
+    if cast:
+        out["cast_members"] = cast
+    # Movie sets: <set><name>X</name></set> (Kodi 17+) or <set>X</set> (older)
+    set_name = _text(root, "set/name") or _text(root, "set")
+    if set_name:
+        out["collection_hint"] = {"nfo": set_name}
     return out
 
 
@@ -156,25 +192,36 @@ class Tmdb:
             params = {"query": title}
             if year:
                 params["year"] = year
-            res = self._get("/search/movie", **params) or {}
-            hits = res.get("results") or []
+            hits = (self._get("/search/movie", **params) or {}).get("results") or []
             if not hits and year:
                 hits = (self._get("/search/movie", query=title) or {}).get("results") or []
-            if not hits:
+            hit = _best_match(hits, title, year, "title", "release_date")
+            if not hit:
                 return {}
-            tmdb_id = hits[0]["id"]
-        d = self._get(f"/movie/{tmdb_id}") or {}
+            tmdb_id = hit["id"]
+        d = self._get(f"/movie/{tmdb_id}", append_to_response="release_dates,credits") or {}
         if not d:
             return {}
+        coll = d.get("belongs_to_collection") or {}
         return _compact({
             "tmdb_id": tmdb_id,
             "title": d.get("title"),
             "year": int(d["release_date"][:4]) if d.get("release_date") else None,
             "plot": d.get("overview"),
+            "tagline": d.get("tagline"),
             "rating": round(d["vote_average"], 1) if d.get("vote_average") else None,
             "genres": [g["name"] for g in d.get("genres", [])] or None,
             "poster": f"tmdb:{d['poster_path']}" if d.get("poster_path") else None,
             "backdrop": f"tmdb:{d['backdrop_path']}" if d.get("backdrop_path") else None,
+            "certification": _us_movie_certification(d),
+            "cast_members": _cast(d),
+            "director": ", ".join(c["name"] for c in (d.get("credits") or {}).get("crew", [])
+                                  if c.get("job") == "Director")[:200] or None,
+            "collection_hint": {"tmdb": {
+                "id": coll["id"], "name": coll.get("name"),
+                "poster": f"tmdb:{coll['poster_path']}" if coll.get("poster_path") else None,
+                "backdrop": f"tmdb:{coll['backdrop_path']}" if coll.get("backdrop_path") else None,
+            }} if coll.get("id") else None,
         })
 
     def show(self, title: str, year: int | None, tmdb_id: int | None = None) -> dict:
@@ -185,14 +232,21 @@ class Tmdb:
             if year:
                 params["first_air_date_year"] = year
             hits = (self._get("/search/tv", **params) or {}).get("results") or []
-            if not hits:
+            if not hits and year:
+                hits = (self._get("/search/tv", query=title) or {}).get("results") or []
+            hit = _best_match(hits, title, year, "name", "first_air_date")
+            if not hit:
                 return {}
-            tmdb_id = hits[0]["id"]
-        d = self._get(f"/tv/{tmdb_id}") or {}
+            tmdb_id = hit["id"]
+        d = self._get(f"/tv/{tmdb_id}", append_to_response="content_ratings,credits") or {}
         if not d:
             return {}
         return _compact({
             "tmdb_id": tmdb_id,
+            "certification": next((normalize_certification(r.get("rating"))
+                                   for r in (d.get("content_ratings") or {}).get("results", [])
+                                   if r.get("iso_3166_1") == "US"), None),
+            "cast_members": _cast(d),
             "title": d.get("name"),
             "year": int(d["first_air_date"][:4]) if d.get("first_air_date") else None,
             "plot": d.get("overview"),
@@ -224,6 +278,50 @@ class Tmdb:
     def image_url(path: str, width: int) -> str:
         size = "original" if width > 780 else ("w780" if width > 500 else "w500")
         return f"https://image.tmdb.org/t/p/{size}{path}"
+
+
+def _simplify(title: str) -> str:
+    t = title.lower().replace("&", " and ")
+    t = re.sub(r"[^a-z0-9]+", " ", t).strip()
+    return re.sub(r"^the ", "", t)
+
+
+def _best_match(hits: list[dict], title: str, year: int | None, name_key: str, date_key: str) -> dict | None:
+    """The closest search hit, or None when nothing is a convincing match.
+
+    TMDB always returns *something*; a home video named "Dad's retirement party" must not
+    get some random film's poster, plot and age rating.
+    """
+    want = _simplify(title)
+    best, best_score = None, 0.0
+    for h in hits[:10]:
+        names = [n for n in (h.get(name_key), h.get("original_" + name_key)) if n]
+        if not names:
+            continue
+        score = max(SequenceMatcher(None, want, _simplify(n)).ratio() for n in names)
+        hit_year = int(h[date_key][:4]) if (h.get(date_key) or "")[:4].isdigit() else None
+        if year and hit_year and abs(hit_year - year) > 1:
+            continue
+        if score > best_score:
+            best, best_score = h, score
+    return best if best_score >= 0.82 else None
+
+
+def _us_movie_certification(d: dict) -> str | None:
+    for country in (d.get("release_dates") or {}).get("results", []):
+        if country.get("iso_3166_1") != "US":
+            continue
+        # Prefer theatrical (3) then digital (4) releases that carry a rating
+        dates = sorted(country.get("release_dates", []), key=lambda r: {3: 0, 4: 1}.get(r.get("type"), 2))
+        for r in dates:
+            if cert := normalize_certification(r.get("certification")):
+                return cert
+    return None
+
+
+def _cast(d: dict) -> list[dict] | None:
+    cast = (d.get("credits") or {}).get("cast", [])[:12]
+    return [{"name": c["name"], "role": c.get("character") or None} for c in cast if c.get("name")] or None
 
 
 def _compact(d: dict) -> dict:

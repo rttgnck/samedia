@@ -6,6 +6,7 @@ import hmac
 import logging
 import os
 import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -64,7 +65,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin)}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections"]}
 
 
 @app.post("/api/v1/auth")
@@ -76,51 +77,173 @@ def pair(body: PairBody):
 
 api = Depends(require_auth)
 
+_PROFILE_ID = re.compile(r"^[a-z0-9]{1,32}$")
+
+
+def viewer(request: Request, profile: str | None = Query(None)) -> library.Viewer:
+    """The profile the TV is browsing as (X-Samedia-Profile header); unknown -> the default profile."""
+    pid = request.headers.get("x-samedia-profile") or profile or db.DEFAULT_PROFILE
+    row = db.one("SELECT id, kids FROM profiles WHERE id=?", (pid,)) if _PROFILE_ID.match(pid) else None
+    if not row:
+        row = db.one("SELECT id, kids FROM profiles ORDER BY created_at LIMIT 1")
+    return library.Viewer(profile_id=row["id"], kids=bool(row["kids"]))
+
+
+Me = Depends(viewer)
+
 
 # ── browse ──────────────────────────────────────────────────────────
 
 @app.get("/api/v1/home", dependencies=[api])
-def home():
-    return library.home()
+def home(v: library.Viewer = Me):
+    return library.home(v)
 
 
 @app.get("/api/v1/movies", dependencies=[api])
-def movies(sort: str = "title", genre: str | None = None, unwatched: bool = False,
-           offset: int = 0, limit: int = Query(5000, le=5000)):
-    return {"items": library.movies(sort, genre, unwatched, offset, limit), "genres": library.genres("movie")}
+def movies(sort: str = "title", genre: str | None = None, unwatched: bool = False, group: bool = False,
+           offset: int = 0, limit: int = Query(5000, le=5000), v: library.Viewer = Me):
+    return {"items": library.movies(v, sort, genre, unwatched, offset, limit, group=group),
+            "genres": library.genres(v, "movie")}
 
 
 @app.get("/api/v1/shows", dependencies=[api])
-def shows(sort: str = "title", genre: str | None = None, offset: int = 0, limit: int = Query(5000, le=5000)):
-    return {"items": library.shows(sort, genre, offset, limit), "genres": library.genres("show")}
+def shows(sort: str = "title", genre: str | None = None, offset: int = 0, limit: int = Query(5000, le=5000),
+          v: library.Viewer = Me):
+    return {"items": library.shows(v, sort, genre, offset, limit), "genres": library.genres(v, "show")}
 
 
 @app.get("/api/v1/shows/{show_id}", dependencies=[api])
-def show(show_id: str):
-    detail = library.show_detail(show_id)
+def show(show_id: str, v: library.Viewer = Me):
+    detail = library.show_detail(v, show_id)
     if not detail:
         raise HTTPException(404, "Show not found")
     return detail
 
 
+@app.get("/api/v1/collections/{collection_id}", dependencies=[api])
+def collection(collection_id: str, v: library.Viewer = Me):
+    detail = library.collection_detail(v, collection_id)
+    if not detail:
+        raise HTTPException(404, "Collection not found")
+    return detail
+
+
 @app.get("/api/v1/items/{item_id}", dependencies=[api])
-def item(item_id: str):
-    row = library.get_item(item_id)
+def item(item_id: str, v: library.Viewer = Me):
+    row = library.get_item(item_id, v)
     if not row:
         raise HTTPException(404, "Item not found")
     out = library.item_summary(row)
+    out.update(library.item_detail_extras(row))
     media = row.get("media") or {}
     out["media"] = {"container": media.get("container"), "video": media.get("video"), "bitrate": media.get("bitrate")}
     out["audio_tracks"] = playback.decide(row, None)["audio_tracks"]
     out["subtitle_tracks"] = playback.subtitle_tracks(row)
-    out["next"] = library.next_episode(row)
+    out["next"] = library.next_episode(v, row)
     out["file"] = Path(row["path"]).name
     return out
 
 
 @app.get("/api/v1/search", dependencies=[api])
-def search(q: str = Query(..., min_length=1, max_length=100)):
-    return library.search(q)
+def search(q: str = Query(..., min_length=1, max_length=100), v: library.Viewer = Me):
+    return library.search(v, q)
+
+
+# ── profiles ────────────────────────────────────────────────────────
+
+_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+class ProfileBody(BaseModel):
+    name: str | None = None
+    color: str | None = None
+    kids: bool | None = None
+
+
+def _profile_out(r: dict) -> dict:
+    return {"id": r["id"], "name": r["name"], "color": r["color"], "kids": bool(r["kids"])}
+
+
+@app.get("/api/v1/profiles", dependencies=[api])
+def list_profiles():
+    return {"profiles": [_profile_out(r) for r in db.query("SELECT * FROM profiles ORDER BY created_at")]}
+
+
+def _clean_profile(body: ProfileBody) -> dict:
+    out = {}
+    if body.name is not None:
+        name = body.name.strip()[:24]
+        if not name:
+            raise HTTPException(400, "Name is required")
+        out["name"] = name
+    if body.color is not None:
+        if not _COLOR.match(body.color):
+            raise HTTPException(400, "Color must be #RRGGBB")
+        out["color"] = body.color
+    if body.kids is not None:
+        out["kids"] = int(body.kids)
+    return out
+
+
+@app.post("/api/v1/profiles", dependencies=[api])
+def create_profile(body: ProfileBody):
+    values = _clean_profile(body)
+    if "name" not in values:
+        raise HTTPException(400, "Name is required")
+    if db.one("SELECT COUNT(*) AS n FROM profiles")["n"] >= 12:
+        raise HTTPException(400, "Too many profiles")
+    pid = uuid.uuid4().hex[:12]
+    db.upsert("profiles", {"id": pid, "color": "#5b8cff", "kids": 0, **values, "created_at": time.time()})
+    return _profile_out(db.one("SELECT * FROM profiles WHERE id=?", (pid,)))
+
+
+@app.put("/api/v1/profiles/{profile_id}", dependencies=[api])
+def update_profile(profile_id: str, body: ProfileBody):
+    if not db.one("SELECT id FROM profiles WHERE id=?", (profile_id,)):
+        raise HTTPException(404, "Profile not found")
+    values = _clean_profile(body)
+    if values:
+        db.execute(f"UPDATE profiles SET {', '.join(f'{k}=?' for k in values)} WHERE id=?",
+                   (*values.values(), profile_id))
+    return _profile_out(db.one("SELECT * FROM profiles WHERE id=?", (profile_id,)))
+
+
+@app.delete("/api/v1/profiles/{profile_id}", dependencies=[api])
+def delete_profile(profile_id: str):
+    if not db.one("SELECT id FROM profiles WHERE id=?", (profile_id,)):
+        raise HTTPException(404, "Profile not found")
+    if db.one("SELECT COUNT(*) AS n FROM profiles")["n"] <= 1:
+        raise HTTPException(400, "The last profile can't be deleted")
+    db.execute("DELETE FROM progress WHERE profile_id=?", (profile_id,))
+    db.execute("DELETE FROM hidden WHERE profile_id=?", (profile_id,))
+    db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+    return {"ok": True}
+
+
+# ── hidden titles ───────────────────────────────────────────────────
+
+class HideBody(BaseModel):
+    id: str
+
+
+@app.get("/api/v1/hidden", dependencies=[api])
+def list_hidden(v: library.Viewer = Me):
+    return {"items": library.hidden(v)}
+
+
+@app.post("/api/v1/hidden", dependencies=[api])
+def hide(body: HideBody, v: library.Viewer = Me):
+    if not library.target_kind(body.id):
+        raise HTTPException(404, "Nothing to hide with that id")
+    db.execute("INSERT OR IGNORE INTO hidden (profile_id, target_id, created_at) VALUES (?, ?, ?)",
+               (v.profile_id, body.id, time.time()))
+    return {"hidden": True}
+
+
+@app.delete("/api/v1/hidden/{target_id}", dependencies=[api])
+def unhide(target_id: str, v: library.Viewer = Me):
+    db.execute("DELETE FROM hidden WHERE profile_id=? AND target_id=?", (v.profile_id, target_id))
+    return {"hidden": False}
 
 
 # ── playback ────────────────────────────────────────────────────────
@@ -135,8 +258,8 @@ class PlaybackBody(BaseModel):
 
 
 @app.post("/api/v1/items/{item_id}/playback", dependencies=[api])
-def start_playback(item_id: str, body: PlaybackBody):
-    row = library.get_item(item_id)
+def start_playback(item_id: str, body: PlaybackBody, v: library.Viewer = Me):
+    row = library.get_item(item_id, v)
     if not row:
         raise HTTPException(404, "Item not found")
     if not row.get("media"):
@@ -222,10 +345,10 @@ class ProgressBody(BaseModel):
 
 
 @app.post("/api/v1/items/{item_id}/progress", dependencies=[api])
-def progress(item_id: str, body: ProgressBody):
+def progress(item_id: str, body: ProgressBody, v: library.Viewer = Me):
     if not db.one("SELECT id FROM items WHERE id=?", (item_id,)):
         raise HTTPException(404)
-    p = db.save_progress(item_id, max(body.position, 0), body.duration)
+    p = db.save_progress(v.profile_id, item_id, max(body.position, 0), body.duration)
     return {"position": p["position"], "watched": bool(p["watched"])}
 
 
@@ -234,21 +357,21 @@ class WatchedBody(BaseModel):
 
 
 @app.post("/api/v1/items/{item_id}/watched", dependencies=[api])
-def watched(item_id: str, body: WatchedBody):
+def watched(item_id: str, body: WatchedBody, v: library.Viewer = Me):
     if not db.one("SELECT id FROM items WHERE id=?", (item_id,)):
         raise HTTPException(404)
-    db.set_watched(item_id, body.watched)
+    db.set_watched(v.profile_id, item_id, body.watched)
     return {"watched": body.watched}
 
 
 @app.post("/api/v1/shows/{show_id}/watched", dependencies=[api])
-def show_watched(show_id: str, body: WatchedBody, season: int | None = None):
+def show_watched(show_id: str, body: WatchedBody, season: int | None = None, v: library.Viewer = Me):
     sql, params = "SELECT id FROM items WHERE show_id=?", [show_id]
     if season is not None:
         sql += " AND season=?"
         params.append(season)
     for r in db.query(sql, params):
-        db.set_watched(r["id"], body.watched)
+        db.set_watched(v.profile_id, r["id"], body.watched)
     return {"watched": body.watched}
 
 
@@ -297,8 +420,8 @@ async def subtitle(item_id: str, track: str, wait: float = Query(25, le=60)):
 async def artwork(owner_id: str, kind: str, w: int = Query(400, ge=50, le=1920)):
     if kind not in ("poster", "backdrop", "thumb"):
         raise HTTPException(404)
-    table = "shows" if owner_id.startswith("s") else "items"
-    if kind == "thumb" and table == "shows":
+    table = {"s": "shows", "c": "collections"}.get(owner_id[:1], "items")
+    if kind == "thumb" and table != "items":
         raise HTTPException(404)
     row = db.one(f"SELECT {kind} AS ref FROM {table} WHERE id=?", (owner_id,))
     if not row or not row["ref"]:
@@ -318,9 +441,19 @@ def admin_status():
             "streams": playback.active_sessions(), "version": VERSION}
 
 
+_MASK = "••••"
+
+
+def _masked(key: str) -> str:
+    return f"{_MASK}{key[-4:]}" if key else ""
+
+
 @app.get("/api/v1/admin/settings", dependencies=[api])
 def get_settings():
-    return {k: getattr(config, k) for k in EDITABLE}
+    out = {k: getattr(config, k) for k in EDITABLE}
+    # Never send the saved TMDB key back out; the admin page shows its last 4 characters
+    out["tmdb_key"] = _masked(config.tmdb_key)
+    return out
 
 
 @app.put("/api/v1/admin/settings", dependencies=[api])
@@ -328,10 +461,29 @@ def put_settings(body: dict):
     unknown = set(body) - set(EDITABLE)
     if unknown:
         raise HTTPException(400, f"Unknown settings: {', '.join(sorted(unknown))}")
+    if str(body.get("tmdb_key", "")).startswith(_MASK):
+        body.pop("tmdb_key")            # the masked value came back unchanged
+    old_key = config.tmdb_key
     apply_overrides(body)
     for k in body:
         db.save_setting(k, getattr(config, k))
+    if config.tmdb_key != old_key and config.tmdb_key:
+        _refresh_metadata()
     return get_settings()
+
+
+def _refresh_metadata() -> bool:
+    """Re-fetch TMDB details for the whole library on the next (immediate) scan."""
+    db.execute("UPDATE items SET meta_at=NULL")
+    db.execute("UPDATE shows SET meta_at=NULL")
+    return scanner.request_scan()
+
+
+@app.post("/api/v1/admin/refresh-metadata", dependencies=[api])
+def admin_refresh_metadata():
+    if not config.tmdb_key:
+        raise HTTPException(400, "Set a TMDB key first")
+    return {"started": _refresh_metadata()}
 
 
 @app.post("/api/v1/admin/scan", dependencies=[api])
