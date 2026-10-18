@@ -47,6 +47,12 @@
         list.appendChild(rowItem("Who's watching", S.get('profileName') + (S.get('profileKids') ? ' · Kids' : ''), function () {
           SM.router.reset('profiles', {});
         }, 'Switch profile. Profiles are managed in the Samedia admin page on your NAS', 'profile'));
+        if (SM.profiles.hasPictures() && S.get('profileId')) {
+          list.appendChild(rowItem('Profile picture', SM.profiles.pictureName(S.get('profileAvatar')), function () {
+            SM.profiles.pickPicture({ id: S.get('profileId'), name: S.get('profileName'), color: S.get('profileColor'),
+              avatar: S.get('profileAvatar') }, render);
+          }, "You can also hold OK on a profile in Who's watching", 'picture'));
+        }
         list.appendChild(rowItem('Hidden titles', '', function () { SM.router.push('hidden', {}); },
           'Hold OK on a title and choose Hide to keep it out of this profile', 'hidden'));
       }

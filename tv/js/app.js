@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.4.1';
+  SM.VERSION = '0.4.2';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -117,9 +117,13 @@
     if (!wasLong) dispatch('enter', e);
   }
 
-  /** Held OK / blue button: the title menu, when a title is focused and nothing else is open. */
+  /** Held OK / blue button: the title menu, when a title is focused and nothing else is open.
+   *  Other focusables can offer their own hold action (element._hold). */
   function longPress() {
-    var item = !ui.topModal() && !SM.focus.hasLayer() ? SM.context.itemFromFocus() : null;
+    var free = !ui.topModal() && !SM.focus.hasLayer();
+    var focused = free ? SM.focus.get() : null;
+    if (focused && focused._hold) { focused._hold(); return; }
+    var item = free ? SM.context.itemFromFocus() : null;
     if (item) SM.context.open(item);
     else dispatch('enter', null);
   }

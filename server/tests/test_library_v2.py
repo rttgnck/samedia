@@ -385,3 +385,17 @@ def test_existing_profiles_get_avatars_on_upgrade(tmp_path, monkeypatch):
     db.connect()
     assert {r["id"]: r["avatar"] for r in db.query("SELECT id, avatar FROM profiles")} == {"default": "fox", "k": "panda"}
     db._conn.close()
+
+
+def test_tv_picks_avatars_only_for_its_profiles(client):
+    kids = client.post("/api/v1/profiles", json={"name": "Kids", "kids": True}).json()
+    tv = {"X-Samedia-Device": "TV-KIDSROOM"}
+    client.get("/api/v1/profiles", headers=tv)
+    client.put("/api/v1/admin/devices/TV-KIDSROOM", json={"profiles": [kids["id"]]})
+    r = client.post(f"/api/v1/profiles/{kids['id']}/avatar", json={"avatar": "dino"}, headers=tv)
+    assert r.status_code == 200 and r.json()["avatar"] == "dino"
+    assert client.post(f"/api/v1/profiles/{kids['id']}/avatar", json={"avatar": "nope"}, headers=tv).status_code == 400
+    # the kids' room TV can't touch the main profile
+    assert client.post("/api/v1/profiles/default/avatar", json={"avatar": "robot"}, headers=tv).status_code == 403
+    assert client.post("/api/v1/profiles/nope/avatar", json={"avatar": "robot"}, headers=tv).status_code == 403
+    assert client.post(f"/api/v1/profiles/{kids['id']}/avatar", json={"avatar": ""}, headers=tv).json()["avatar"] is None

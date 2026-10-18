@@ -204,6 +204,21 @@ def list_avatars():
     return {"avatars": list(db.AVATARS)}
 
 
+class AvatarBody(BaseModel):
+    avatar: str     # one of db.AVATARS, "" = just the initial
+
+
+@app.post("/api/v1/profiles/{profile_id}/avatar", dependencies=[api])
+def set_avatar(profile_id: str, body: AvatarBody, request: Request):
+    """Picture chosen on a TV: only for profiles that TV is allowed to show."""
+    if profile_id not in {p["id"] for p in allowed_profiles(current_device(request))}:
+        raise HTTPException(403, "This TV can't change that profile")
+    if body.avatar and body.avatar not in db.AVATARS:
+        raise HTTPException(400, "Unknown avatar")
+    db.execute("UPDATE profiles SET avatar=? WHERE id=?", (body.avatar or None, profile_id))
+    return _profile_out(db.one("SELECT * FROM profiles WHERE id=?", (profile_id,)))
+
+
 @app.get("/api/v1/profiles", dependencies=[api])
 def list_profiles(request: Request, all: bool = False):
     """Profiles for this TV (all=true: every profile, for the admin page)."""

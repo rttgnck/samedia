@@ -173,6 +173,10 @@
     home: function () { return request('GET', '/api/v1/home'); },
     collection: function (id) { return request('GET', '/api/v1/collections/' + id); },
     profiles: function () { return request('GET', '/api/v1/profiles'); },
+    avatars: function () { return request('GET', '/api/v1/avatars'); },
+    setAvatar: function (profileId, avatar) {
+      return request('POST', '/api/v1/profiles/' + profileId + '/avatar', { avatar: avatar });
+    },
     hidden: function () { return request('GET', '/api/v1/hidden'); },
     bookmarks: function (itemId) { return request('GET', '/api/v1/items/' + itemId + '/bookmarks'); },
     addBookmark: function (itemId, position) { return request('POST', '/api/v1/items/' + itemId + '/bookmarks', { position: position }); },
