@@ -189,13 +189,7 @@ class Tmdb:
         if not self.enabled:
             return {}
         if not tmdb_id:
-            params = {"query": title}
-            if year:
-                params["year"] = year
-            hits = (self._get("/search/movie", **params) or {}).get("results") or []
-            if not hits and year:
-                hits = (self._get("/search/movie", query=title) or {}).get("results") or []
-            hit = _best_match(hits, title, year, "title", "release_date")
+            hit = self._find("/search/movie", "year", title, year, "title", "release_date")
             if not hit:
                 return {}
             tmdb_id = hit["id"]
@@ -228,13 +222,7 @@ class Tmdb:
         if not self.enabled:
             return {}
         if not tmdb_id:
-            params = {"query": title}
-            if year:
-                params["first_air_date_year"] = year
-            hits = (self._get("/search/tv", **params) or {}).get("results") or []
-            if not hits and year:
-                hits = (self._get("/search/tv", query=title) or {}).get("results") or []
-            hit = _best_match(hits, title, year, "name", "first_air_date")
+            hit = self._find("/search/tv", "first_air_date_year", title, year, "name", "first_air_date")
             if not hit:
                 return {}
             tmdb_id = hit["id"]
@@ -255,6 +243,19 @@ class Tmdb:
             "poster": f"tmdb:{d['poster_path']}" if d.get("poster_path") else None,
             "backdrop": f"tmdb:{d['backdrop_path']}" if d.get("backdrop_path") else None,
         })
+
+    def _find(self, path: str, year_param: str, title: str, year: int | None,
+              name_key: str, date_key: str) -> dict | None:
+        """Search TMDB, retrying with cleaned-up variants of the title when nothing convincing comes back."""
+        for query in _query_variants(title, year):
+            hits: list[dict] = []
+            if year:
+                hits = (self._get(path, query=query, **{year_param: year}) or {}).get("results") or []
+            if not hits:
+                hits = (self._get(path, query=query) or {}).get("results") or []
+            if hit := _best_match(hits, query, year, name_key, date_key):
+                return hit
+        return None
 
     def episode(self, show_tmdb_id: int, season: int, episode: int) -> dict:
         if not self.enabled or not show_tmdb_id:
@@ -286,6 +287,39 @@ def _simplify(title: str) -> str:
     return re.sub(r"^the ", "", t)
 
 
+def _deleet(title: str) -> str:
+    """"Z00topia" -> "Zootopia": digits used as letters inside words."""
+    t = re.sub(r"(?<=[A-Za-z])0|0(?=[A-Za-z])", "o", title)
+    return re.sub(r"(?<=[A-Za-z])1(?=[A-Za-z])", "i", t)
+
+
+def _query_variants(title: str, year: int | None) -> list[str]:
+    out = [title, _deleet(title), re.sub(r"\s+the movie$", "", title, flags=re.I)]
+    words = title.split()
+    # Long titles with extra words ("Free Willy Havets forsvarer & ..."): try shorter
+    # prefixes, but only with a known year to keep the match honest.
+    if year and len(words) > 3:
+        out += [" ".join(words[:n]) for n in range(len(words) - 1, 1, -1)]
+    seen, unique = set(), []
+    for q in out:
+        q = q.strip()
+        if q and q.lower() not in seen:
+            seen.add(q.lower())
+            unique.append(q)
+    return unique[:8]
+
+
+def _contains_match(want: str, name: str, year_ok: bool) -> bool:
+    """One title inside the other: "mandalorian and grogu" in "star wars the mandalorian and grogu"."""
+    shorter, longer = sorted((want, name), key=len)
+    if len(shorter) < 8 or f" {shorter} " not in f" {longer} ":
+        return False
+    if year_ok:
+        return True
+    # Without a year only accept a sequel-like prefix: "free willy 2" -> "free willy 2 the adventure home"
+    return longer.startswith(shorter) and (len(shorter.split()) >= 3 or any(c.isdigit() for c in shorter))
+
+
 def _best_match(hits: list[dict], title: str, year: int | None, name_key: str, date_key: str) -> dict | None:
     """The closest search hit, or None when nothing is a convincing match.
 
@@ -298,10 +332,13 @@ def _best_match(hits: list[dict], title: str, year: int | None, name_key: str, d
         names = [n for n in (h.get(name_key), h.get("original_" + name_key)) if n]
         if not names:
             continue
-        score = max(SequenceMatcher(None, want, _simplify(n)).ratio() for n in names)
         hit_year = int(h[date_key][:4]) if (h.get(date_key) or "")[:4].isdigit() else None
         if year and hit_year and abs(hit_year - year) > 1:
             continue
+        year_ok = bool(year and hit_year)
+        score = max(SequenceMatcher(None, want, _simplify(n)).ratio() for n in names)
+        if score < 0.82 and any(_contains_match(want, _simplify(n), year_ok) for n in names):
+            score = 0.82
         if score > best_score:
             best, best_score = h, score
     return best if best_score >= 0.82 else None

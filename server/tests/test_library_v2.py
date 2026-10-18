@@ -230,3 +230,26 @@ def test_tmdb_key_is_never_sent_back(client, monkeypatch):
 
 def test_info_advertises_features(client):
     assert "profiles" in client.get("/api/v1/info").json()["features"]
+
+
+def test_rescan_reclassifies_movies_that_are_episodes(fresh_db, tmp_path, monkeypatch):
+    """Earth2_E01_* files indexed as movies by an older version become episodes, without re-probing."""
+    from samedia import probe
+    from samedia.scanner import Scanner, make_id
+    root = tmp_path / "media"
+    f = root / "Earth 2 (1994)" / "Earth2_E01_First-Contact.mp4"
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"x")
+    st = f.stat()
+    media = {"container": "mp4", "duration": 2700.0, "video": {"codec": "h264"}, "audio": [], "subtitles": []}
+    db.upsert("items", {"id": make_id("m", str(f)), "kind": "movie", "path": str(f), "root": str(root),
+                        "size": st.st_size, "mtime": st.st_mtime, "title": "Earth 2", "sort_title": "earth 2",
+                        "media": media, "added_at": 123.0})
+    monkeypatch.setattr(config, "media_roots", [str(root)])
+    monkeypatch.setattr(probe, "probe", lambda p: (_ for _ in ()).throw(AssertionError("re-probed")))
+    Scanner().scan()
+    rows = db.query("SELECT id, kind, title, season, episode, added_at, show_id FROM items")
+    assert len(rows) == 1 and rows[0]["kind"] == "episode"
+    assert (rows[0]["season"], rows[0]["episode"], rows[0]["title"]) == (1, 1, "First Contact")
+    assert rows[0]["added_at"] == 123.0
+    assert db.one("SELECT title FROM shows WHERE id=?", (rows[0]["show_id"],))["title"] == "Earth 2"

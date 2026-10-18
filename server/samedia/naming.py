@@ -20,6 +20,8 @@ _EPISODE_PATTERNS = [
     re.compile(r"(?P<pre>.*?)[\s._-]*[Ss](?P<season>\d{1,2})[\s._-]?[Ee](?P<ep>\d{1,3})(?:[\s._-]?[Ee-](?P<end>\d{1,3}))?"),
     # Show Name 1x02
     re.compile(r"(?P<pre>.*?)[\s._-]*(?<!\d)(?P<season>\d{1,2})x(?P<ep>\d{2,3})(?:[x-](?P<end>\d{2,3}))?(?!\d)"),
+    # Show_E01_Title / Show - Ep 3 / Show Episode 12 (no season -> season 1)
+    re.compile(r"(?P<pre>.+?)[\s._-]+[Ee](?:p|pisode)?[\s._-]?(?P<ep>\d{1,3})(?=[\s._-]|$)"),
 ]
 _SEASON_DIR = re.compile(r"^(?:season|series|staffel|saison|temporada)[\s._-]*(\d{1,3})$|^s(\d{1,3})$", re.I)
 _SPECIALS_DIR = re.compile(r"^specials?$", re.I)
@@ -27,9 +29,18 @@ _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
 _JUNK = re.compile(
     r"[\s._\[(-]+(?:2160p|1080p|1080i|720p|576p|480p|4k|uhd|hdr10\+?|hdr|dv|dovi|remux|bluray|blu-ray|bdrip|brrip|"
     r"web-?dl|web-?rip|webrip|hdtv|dvdrip|x264|x265|h\.?264|h\.?265|hevc|avc|10bit|atmos|truehd|dts(?:-hd)?|"
-    r"ddp?5\.1|aac|ac3|proper|repack|extended|unrated|imax|directors\.cut|criterion)\b.*$",
+    r"ddp?5\.1|aac|ac3|proper|repack|extended|unrated|imax|directors\.cut|criterion|"
+    r"eng(?:lish)?[\s._-]+(?:nordic|multi|subs?|subbed)|multi[\s._-]?subs?|nordic[\s._-]?subs?)\b.*$",
     re.I,
 )
+# "www.UIndex.org - Elio", "site.com - Title" (a bare "The Net" stays a title)
+_TLD = r"(?:org|com|net|to|cc|me|io|tv|ws|info|xyz|club)"
+_SITE_PREFIX = re.compile(
+    rf"^\s*(?:www[\s.]+[a-z0-9-]+[\s.]+{_TLD}\b[\s\-–]*|[a-z0-9-]+[\s.]+{_TLD}\s+[-–]+\s*)", re.I)
+# "Timecrimes - Horror": a genre appended after a dash
+_GENRE_SUFFIX = re.compile(
+    r"\s+[-–]\s+(?:horror|comedy|action|drama|thriller|sci-?fi|science fiction|animation|animated|documentary|"
+    r"romance|fantasy|crime|western|war|family|adventure|mystery|musical|kids)\s*$", re.I)
 _ARTICLES = re.compile(r"^(the|a|an)\s+", re.I)
 
 
@@ -48,6 +59,8 @@ class Parsed:
 def clean(name: str) -> str:
     # Leading site / release-group tags: "[UsaBit com] Pirates of Silicon Valley"
     name = re.sub(r"^\s*(?:\[[^\]]*\]\s*)+", "", name)
+    name = _SITE_PREFIX.sub("", name)
+    name = name.replace("_", " ")        # "_Extended_" must be a separate word for \b
     name = _JUNK.sub("", name)
     name = re.sub(r"[._]", " ", name)
     name = re.sub(r"\s+", " ", name)
@@ -55,6 +68,7 @@ def clean(name: str) -> str:
     name = re.sub(r"^[\s\-\])]+", "", name)
     if name.endswith(")") and name.count("(") < name.count(")"):
         name = name[:-1].rstrip()
+    name = _GENRE_SUFFIX.sub("", name)
     return name.strip()
 
 
@@ -114,8 +128,9 @@ def parse(path: Path, root: Path, folder_exclusive: bool = False) -> Parsed:
         m = pattern.search(stem)
         if not m:
             continue
-        season, ep = int(m.group("season")), int(m.group("ep"))
-        end = int(m.group("end")) if m.group("end") else None
+        season = int(m.group("season")) if m.groupdict().get("season") else 1
+        ep = int(m.group("ep"))
+        end = int(m.group("end")) if m.groupdict().get("end") else None
         show_dir = _show_dir_for(path, root)
         pre = clean(m.group("pre"))
         if show_dir is not None and pre and show_dir == path.parent and not _same_name(pre, show_dir.name):
@@ -127,6 +142,8 @@ def parse(path: Path, root: Path, folder_exclusive: bool = False) -> Parsed:
             show_dir = path.parent / f"#{show_title}"   # virtual show for flat folders
         after = stem[m.end():]
         ep_title = clean(after) or f"Episode {ep}"
+        if " " not in ep_title and "-" in ep_title:
+            ep_title = ep_title.replace("-", " ")    # "First-Contact-Part1"
         return Parsed(
             kind="episode", title=ep_title, year=show_year, show_title=show_title or "Unknown Show",
             show_dir=show_dir, season=season, episode=ep, episode_end=end if end and end > ep else None,

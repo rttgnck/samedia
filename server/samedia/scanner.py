@@ -65,7 +65,7 @@ class Scanner:
                 files.extend((root, f) for f in self._walk(root))
             self.status["found"] = len(files)
 
-            known = {r["path"]: r for r in db.query("SELECT id, path, size, mtime FROM items")}
+            known = {r["path"]: r for r in db.query("SELECT id, kind, path, size, mtime FROM items")}
             todo = []
             for root, f in files:
                 try:
@@ -73,7 +73,8 @@ class Scanner:
                 except OSError:
                     continue
                 row = known.get(str(f))
-                if row and row["size"] == st.st_size and abs(row["mtime"] - st.st_mtime) < 1:
+                if row and row["size"] == st.st_size and abs(row["mtime"] - st.st_mtime) < 1 \
+                        and naming.parse(f, root).kind == row["kind"]:
                     self.status["processed"] += 1
                     continue
                 todo.append((root, f, st))
@@ -119,15 +120,24 @@ class Scanner:
 
     def _index_file(self, root: Path, path: Path, st: os.stat_result) -> None:
         parsed = naming.parse(path, root, folder_exclusive=self._video_siblings(path, root) == 1)
-        media = probe.probe(path) if path.suffix.lower() != ".iso" else None
         item_id = make_id("m" if parsed.kind == "movie" else "e", str(path))
+        previous = db.one("SELECT id, media, size, mtime, added_at FROM items WHERE path=?", (str(path),))
+        if previous and previous["id"] != item_id:
+            # Same file, now read as a different kind (e.g. a movie that is really an episode):
+            # keep its probe result, drop the old entry (ids depend on the kind).
+            db.execute("DELETE FROM items WHERE id=?", (previous["id"],))
+        unchanged = previous and previous["size"] == st.st_size and abs(previous["mtime"] - st.st_mtime) < 1
+        if unchanged and previous["media"]:
+            media = previous["media"]
+        else:
+            media = probe.probe(path) if path.suffix.lower() != ".iso" else None
         existing = db.one("SELECT added_at FROM items WHERE id=?", (item_id,))
         values = {
             "id": item_id, "kind": parsed.kind, "path": str(path), "root": str(root),
             "size": st.st_size, "mtime": st.st_mtime,
             "duration": (media or {}).get("duration"), "media": media,
             "sidecar_subs": subtitles.find_sidecars(path),
-            "added_at": existing["added_at"] if existing else time.time(),
+            "added_at": existing["added_at"] if existing else (previous["added_at"] if previous else time.time()),
         }
 
         if parsed.kind == "movie":

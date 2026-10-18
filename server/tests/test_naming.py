@@ -59,3 +59,40 @@ def test_folder_per_movie_name_wins_over_abbreviated_file():
     # A shared folder ("Movies 2024") is not a title
     q = Path("/m/Movies 2024/Dune.Part.Two.2024.mkv")
     assert parse(q, root, folder_exclusive=False).title == "Dune Part Two"
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("rel,kind,title,year", [
+    ("Earth 2 (1994)/Earth2_E01_First-Contact-Part1.mp4", "episode", "First Contact Part1", 1994),
+    ("www.UIndex.org    -    Elio (2025)/Elio.2025.1080p.WEB.h264-ETHEL.mkv", "movie", "Elio", 2025),
+    ("Terminator_2--Extended_Special_Edition [DTS] (h264-sickboy88).mkv", "movie", "Terminator 2", None),
+    ("Timecrimes - Horror 2007 Eng Spa Multi-Subs 1080p [H264-mp4].mp4", "movie", "Timecrimes", 2007),
+    ("Free Willy 2.English.Nordic sub.mkv", "movie", "Free Willy 2", None),
+    # real titles that look like junk must survive
+    ("The Net 1995.mkv", "movie", "The Net", 1995),
+    ("The English Patient 1996.mkv", "movie", "The English Patient", 1996),
+    ("WALL-E 2008 1080p.mkv", "movie", "WALL-E", 2008),
+])
+def test_messy_names(rel, kind, title, year):
+    from pathlib import Path
+    from samedia.naming import parse
+    p = parse(Path("/m") / rel, Path("/m"), folder_exclusive=True)
+    assert (p.kind, p.title, p.year) == (kind, title, year)
+
+
+def test_tmdb_matching_variants():
+    from samedia.metadata import _best_match, _query_variants
+
+    def match(hits, title, year):
+        return (_best_match(hits, title, year, "title", "release_date") or {}).get("title")
+    assert "Zootopia 2" in _query_variants("Z00topia 2", 2025)
+    assert "Free Willy" in _query_variants("Free Willy Havets forsvarer & Den gigantiske ålen", 1994)
+    assert match([{"title": "The Mandalorian and Grogu", "release_date": "2026-05-22"}],
+                 "Star Wars The Mandalorian And Grogu", 2026) == "The Mandalorian and Grogu"
+    assert match([{"title": "Free Willy 2: The Adventure Home", "release_date": "1995-07-19"}],
+                 "Free Willy 2", None) == "Free Willy 2: The Adventure Home"
+    # no false friends
+    assert match([{"title": "Alien Resurrection", "release_date": "1997-11-12"}], "Alien", None) is None
+    assert match([{"title": "Star Wars", "release_date": "1977-05-25"}], "Star Wars The Mandalorian", 2026) is None
