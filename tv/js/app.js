@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.4.0';
+  SM.VERSION = '0.4.1';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -40,9 +40,15 @@
     return nav;
   }
 
-  function avatar(name, color, kids) {
-    return el('span.avatar' + (kids ? '.kids' : ''), { style: { background: color || 'var(--accent)' },
-      text: (name || '?').trim().charAt(0).toUpperCase() });
+  /** A profile's picture (served by Samedia), or its initial on its color. */
+  function avatar(name, color, kids, picture, cls) {
+    var a = el('span.' + (cls || 'avatar') + (kids ? '.kids' : ''), { style: { background: color || 'var(--accent)' } });
+    if (picture && /^[a-z0-9-]+$/.test(picture)) {
+      a.appendChild(el('img', { src: SM.api.abs('/avatars/' + picture + '.svg'), alt: '' }));
+    } else {
+      a.textContent = (name || '?').trim().charAt(0).toUpperCase();
+    }
+    return a;
   }
 
   function renderProfile() {
@@ -50,7 +56,7 @@
     var name = SM.settings.get('profileName');
     profileItem.classList.toggle('hidden', !name);
     SM.util.clear(profileItem);
-    profileItem.appendChild(avatar(name, SM.settings.get('profileColor'), SM.settings.get('profileKids')));
+    profileItem.appendChild(avatar(name, SM.settings.get('profileColor'), SM.settings.get('profileKids'), SM.settings.get('profileAvatar')));
     var kidsTag = SM.settings.get('profileKids') && !/kid/i.test(name || '') ? ' · Kids' : '';
     profileItem.appendChild(el('span', { text: name + kidsTag }));
   }
@@ -184,6 +190,7 @@
     S.set('profileName', p.name);
     S.set('profileColor', p.color);
     S.set('profileKids', !!p.kids);
+    S.set('profileAvatar', p.avatar || '');
     SM.events.emit('profile', p);
   }
 

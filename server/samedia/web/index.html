@@ -38,6 +38,12 @@
   .tv-profiles { display: flex; gap: 14px; flex-wrap: wrap; width: 100%; padding-left: 36px; }
   select { background: var(--input); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font: inherit; }
   button.small { padding: 7px 12px; font-size: 13px; }
+  .pic { width: 44px; height: 44px; border-radius: 50%; flex: none; padding: 0; overflow: hidden; display: grid; place-items: center;
+    font-size: 18px; font-weight: 700; color: #fff; outline-offset: 2px; }
+  .pic img { width: 100%; height: 100%; display: block; }
+  .pic:hover, .pic.on { outline: 2px solid var(--accent); }
+  .pics { flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fill, 52px); gap: 10px; padding: 6px 0 4px; }
+  .pics .pic { width: 52px; height: 52px; }
 </style>
 </head>
 <body>
@@ -165,6 +171,7 @@ $("loginBtn").onclick = async () => {
 };
 
 // ── profiles & TVs ────────────────────────────────────────────────
+let pickerFor = null;   // profile whose picture grid is open
 const COLORS = ["#5b8cff", "#ff6b6b", "#3ecf8e", "#ffb547", "#b46bff", "#33c3ff", "#ff7ac6", "#8a93a6"];
 let people = [];
 
@@ -221,7 +228,18 @@ function ago(ts) {
   return Math.round(s / 86400) + " days ago";
 }
 
+let avatars = [];
+
+/** A button showing a profile picture, or the profile's initial on its color. */
+function picture(p, avatar, props) {
+  const b = el("button", { type: "button", ...props, style: { background: p.color } });
+  if (avatar) b.appendChild(el("img", { src: "avatars/" + avatar + ".svg", alt: avatar }));
+  else b.textContent = p.name.charAt(0).toUpperCase();
+  return b;
+}
+
 async function loadPeople() {
+  if (!avatars.length) avatars = (await api("/api/v1/avatars").catch(() => ({ avatars: [] }))).avatars;
   people = (await api("/api/v1/profiles?all=true")).profiles;
   const box = $("people");
   box.replaceChildren(...people.map((p) => {
@@ -233,13 +251,24 @@ async function loadPeople() {
     const color = el("select", {}, COLORS.map((c) => el("option", { value: c, text: "●  " + c, style: { color: c } })));
     color.value = COLORS.includes(p.color) ? p.color : COLORS[0];
     color.addEventListener("change", () => api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ color: color.value }) }).then(loadPeople));
+    color.hidden = !!p.avatar;   // the color only shows behind the initial
     const del = el("button", { class: "ghost small", text: "Delete", disabled: people.length <= 1, onclick: async () => {
       if (!confirm(`Delete ${p.name}? Its watch history, bookmarks and hidden titles are removed.`)) return;
       try { await api("/api/v1/profiles/" + p.id, { method: "DELETE" }); } catch (e) { alert(e.message); }
       loadPeople();
     } });
-    return el("div", { class: "person" }, [el("span", { class: "dot", style: { background: p.color }, text: p.name.charAt(0).toUpperCase() }),
-      name, el("label", { class: "inline" }, [kids, document.createTextNode("Kids")]), color, del]);
+    const pic = picture(p, p.avatar, { title: "Change picture", class: "pic" + (pickerFor === p.id ? " on" : ""),
+      onclick: () => { pickerFor = pickerFor === p.id ? null : p.id; loadPeople(); } });
+    const choose = async (a) => {
+      pickerFor = null;
+      try { await api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ avatar: a }) }); } catch (e) { alert(e.message); }
+      loadPeople();
+    };
+    const grid = pickerFor === p.id && el("div", { class: "pics" }, [
+      ...avatars.map((a) => picture(p, a, { title: a, class: "pic" + (p.avatar === a ? " on" : ""), onclick: () => choose(a) })),
+      picture(p, "", { title: "Just the initial", class: "pic" + (!p.avatar ? " on" : ""), onclick: () => choose("") }),
+    ]);
+    return el("div", { class: "person" }, [pic, name, el("label", { class: "inline" }, [kids, document.createTextNode("Kids")]), color, del, grid]);
   }));
 
   const d = await api("/api/v1/admin/devices");
@@ -322,7 +351,7 @@ async function start() {
     await loadSettings(); $("app").style.display = "block"; refresh(); loadPeople();
     setInterval(() => refresh().catch(() => {}), 2000);
     // Keep "last seen" fresh, but don't redraw while someone is typing
-    setInterval(() => { if (!document.activeElement || document.activeElement.tagName !== "INPUT") loadPeople().catch(() => {}); }, 20000);
+    setInterval(() => { if (!pickerFor && (!document.activeElement || document.activeElement.tagName !== "INPUT")) loadPeople().catch(() => {}); }, 20000);
   }
   catch (e) { if (e.message !== "auth") alert(e.message); }
 }

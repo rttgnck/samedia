@@ -67,7 +67,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars"]}
 
 
 @app.post("/api/v1/auth")
@@ -192,10 +192,16 @@ class ProfileBody(BaseModel):
     name: str | None = None
     color: str | None = None
     kids: bool | None = None
+    avatar: str | None = None     # one of db.AVATARS, "" = just the initial
 
 
 def _profile_out(r: dict) -> dict:
-    return {"id": r["id"], "name": r["name"], "color": r["color"], "kids": bool(r["kids"])}
+    return {"id": r["id"], "name": r["name"], "color": r["color"], "kids": bool(r["kids"]), "avatar": r.get("avatar")}
+
+
+@app.get("/api/v1/avatars", dependencies=[api])
+def list_avatars():
+    return {"avatars": list(db.AVATARS)}
 
 
 @app.get("/api/v1/profiles", dependencies=[api])
@@ -218,6 +224,10 @@ def _clean_profile(body: ProfileBody) -> dict:
         out["color"] = body.color
     if body.kids is not None:
         out["kids"] = int(body.kids)
+    if body.avatar is not None:
+        if body.avatar and body.avatar not in db.AVATARS:
+            raise HTTPException(400, "Unknown avatar")
+        out["avatar"] = body.avatar or None
     return out
 
 
@@ -229,7 +239,8 @@ def create_profile(body: ProfileBody):
     if db.one("SELECT COUNT(*) AS n FROM profiles")["n"] >= 12:
         raise HTTPException(400, "Too many profiles")
     pid = uuid.uuid4().hex[:12]
-    db.upsert("profiles", {"id": pid, "color": "#5b8cff", "kids": 0, **values, "created_at": time.time()})
+    db.upsert("profiles", {"id": pid, "color": "#5b8cff", "kids": 0, "avatar": db.next_avatar(), **values,
+                           "created_at": time.time()})
     return _profile_out(db.one("SELECT * FROM profiles WHERE id=?", (pid,)))
 
 

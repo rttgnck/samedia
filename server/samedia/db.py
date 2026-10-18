@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS settings (
 JSON_COLUMNS = {"genres", "media", "sidecar_subs", "cast_members", "collection_hint", "profiles"}
 
 DEFAULT_PROFILE = "default"
+# Profile pictures, served from web/avatars/<name>.svg (order = order in the picker)
+AVATARS = ("fox", "panda", "owl", "cat", "dog", "bear", "rabbit", "penguin",
+           "frog", "lion", "koala", "tiger", "dino", "monster", "robot", "astronaut")
 
 
 def _add_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
@@ -163,7 +166,21 @@ def _migrate_3(conn: sqlite3.Connection) -> None:
         )""")
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3]
+def _migrate_4(conn: sqlite3.Connection) -> None:
+    """Profile pictures; existing profiles each get a different one."""
+    _add_column(conn, "profiles", "avatar", "TEXT")
+    rows = conn.execute("SELECT id FROM profiles WHERE avatar IS NULL ORDER BY created_at").fetchall()
+    for i, (pid,) in enumerate(rows):
+        conn.execute("UPDATE profiles SET avatar=? WHERE id=?", (AVATARS[i % len(AVATARS)], pid))
+
+
+def next_avatar() -> str:
+    """A picture no profile uses yet (or the least used one)."""
+    used = [r["avatar"] for r in query("SELECT avatar FROM profiles")]
+    return min(AVATARS, key=lambda a: (used.count(a), AVATARS.index(a)))
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

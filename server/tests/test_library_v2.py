@@ -352,3 +352,36 @@ def test_new_tvs_get_the_default_profiles(client):
 def test_bad_device_ids_are_ignored(client):
     assert len(client.get("/api/v1/profiles", headers={"X-Samedia-Device": "x" * 200}).json()["profiles"]) == 1
     assert client.get("/api/v1/admin/devices").json()["devices"] == []
+
+
+def test_profile_avatars(client):
+    assert client.get("/api/v1/avatars").json()["avatars"][:2] == ["fox", "panda"]
+    main = client.get("/api/v1/profiles").json()["profiles"][0]
+    assert main["avatar"] == "fox"
+    # new profiles get a picture nobody uses yet
+    kids = client.post("/api/v1/profiles", json={"name": "Kids", "kids": True}).json()
+    assert kids["avatar"] == "panda"
+    assert client.put(f"/api/v1/profiles/{kids['id']}", json={"avatar": "robot"}).json()["avatar"] == "robot"
+    assert client.put(f"/api/v1/profiles/{kids['id']}", json={"avatar": "../../etc/passwd"}).status_code == 400
+    # "" = no picture, just the initial
+    assert client.put(f"/api/v1/profiles/{kids['id']}", json={"avatar": ""}).json()["avatar"] is None
+    r = client.get("/avatars/robot.svg")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    for name in db.AVATARS:
+        assert client.get(f"/avatars/{name}.svg").status_code == 200
+
+
+def test_existing_profiles_get_avatars_on_upgrade(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setattr(config, "data_dir", tmp_path / "config")
+    monkeypatch.setattr(db, "_conn", None)
+    db.connect()
+    db._conn.execute("ALTER TABLE profiles DROP COLUMN avatar")
+    db._conn.execute("INSERT INTO profiles (id, name, color, kids, created_at) VALUES ('k', 'Kids', '#123456', 1, ?)",
+                     (time.time() + 1,))
+    db._conn.execute("PRAGMA user_version=3")
+    db._conn.close()
+    monkeypatch.setattr(db, "_conn", None)
+    db.connect()
+    assert {r["id"]: r["avatar"] for r in db.query("SELECT id, avatar FROM profiles")} == {"default": "fox", "k": "panda"}
+    db._conn.close()

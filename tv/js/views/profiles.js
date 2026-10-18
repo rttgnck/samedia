@@ -12,7 +12,7 @@
 
     function tile(p) {
       var t = el('div.profile-tile.f', { onclick: function () { SM.app.selectProfile(p); SM.app.goHome(); } }, [
-        el('div.profile-avatar', { style: { background: p.color }, text: p.name.charAt(0).toUpperCase() }),
+        SM.app.avatar(p.name, p.color, false, p.avatar, 'profile-avatar'),
         el('div.profile-name', { text: p.name }),
         p.kids ? el('div.profile-kids', { text: 'Kids' }) : null,
       ]);
