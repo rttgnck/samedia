@@ -45,6 +45,14 @@ Environment variables set the defaults. Values changed in the admin page are sto
 | `SAMEDIA_PREEXTRACT_SUBS` | `0` | `1` = extract subtitles during scans |
 | `SAMEDIA_EAC3_BITRATE` | `640k` | Bitrate for converted audio |
 
+## Theming the admin page
+
+An app that opens or embeds the admin page can match it to its own look. Pass colors either as a URL
+hash, `/#theme=<url-encoded JSON>`, or live with `postMessage({type: "samedia:theme", theme})` to the
+page's window. Keys: `bg`, `card`, `line`, `text`, `dim`, `accent`, `accent-text`, `input`. Values must be
+plain colors (`#hex`, `rgb()/rgba()`, `hsl()/hsla()` or `transparent`); anything else is ignored. The last
+theme is remembered in the browser.
+
 ## API (v1)
 
 Every endpoint except `/api/v1/info` and `/api/v1/auth` requires the token, sent as

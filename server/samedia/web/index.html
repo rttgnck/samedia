@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Samedia Server</title>
 <style>
-  :root { --bg:#0d0f14; --card:#161a22; --line:#262c38; --text:#e8ebf1; --dim:#8a93a6; --accent:#5b8cff; --ok:#3ecf8e; --bad:#ff6b6b; }
+  :root { --bg:#0d0f14; --card:#161a22; --line:#262c38; --text:#e8ebf1; --dim:#8a93a6; --accent:#5b8cff; --accent-text:#fff; --input:#0f1218; --ok:#3ecf8e; --bad:#ff6b6b; }
+  :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
@@ -15,9 +16,9 @@
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
   .stat b { display: block; font-size: 28px; } .stat span { color: var(--dim); font-size: 13px; }
   label { display: block; font-weight: 600; margin: 14px 0 6px; } label small { color: var(--dim); font-weight: 400; }
-  input, textarea { width: 100%; background: #0f1218; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; }
+  input, textarea { width: 100%; background: var(--input); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; }
   textarea { min-height: 90px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
   button:disabled { opacity: .5; cursor: default; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -83,6 +84,32 @@
   </div>
 </main>
 <script>
+// Optional theming by the app that opens or embeds this page (e.g. a NAS dashboard):
+// a "#theme=<url-encoded JSON>" hash, or postMessage({type: "samedia:theme", theme}).
+// Only these keys are used, and only plain color values are accepted.
+(function () {
+  const KEYS = ["bg", "card", "line", "text", "dim", "accent", "accent-text", "input"];
+  const COLOR = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\([0-9.,%\s\/deg+-]{1,60}\)|transparent)$/i;
+  function apply(theme, persist) {
+    if (!theme || typeof theme !== "object") return;
+    let applied = false;
+    for (const k of KEYS) {
+      const v = typeof theme[k] === "string" ? theme[k].trim() : "";
+      if (COLOR.test(v)) { document.documentElement.style.setProperty("--" + k, v); applied = true; }
+    }
+    if (applied && persist) { try { localStorage.setItem("samedia_theme", JSON.stringify(theme)); } catch (e) {} }
+  }
+  try { apply(JSON.parse(localStorage.getItem("samedia_theme") || "null"), false); } catch (e) {}
+  const m = location.hash.match(/(?:^#|&)theme=([^&]+)/);
+  if (m) {
+    try { apply(JSON.parse(decodeURIComponent(m[1])), true); } catch (e) {}
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+  window.addEventListener("message", (e) => {
+    if (e.data && e.data.type === "samedia:theme") apply(e.data.theme, true);
+  });
+})();
+
 const $ = (id) => document.getElementById(id);
 let token = localStorage.getItem("samedia_token") || "";
 
