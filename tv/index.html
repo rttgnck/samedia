@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080, user-scalable=no">
+  <title>Samedia</title>
+  <link rel="stylesheet" href="css/app.css">
+  <!-- Samsung TV web APIs (AVPlay, productinfo, network). Absent in desktop browsers. -->
+  <script src="$WEBAPIS/webapis/webapis.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div id="overlays"></div>
+    <div id="toast"></div>
+  </div>
+  <script>
+    // Desktop development: scale the 1920×1080 canvas to the window. The TV renders 1:1.
+    (function () {
+      if (typeof tizen !== 'undefined') return;
+      function fit() {
+        var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+        var app = document.getElementById('app');
+        app.style.transform = 'scale(' + s + ')';
+        document.documentElement.style.width = document.body.style.width = (1920 * s) + 'px';
+        document.documentElement.style.height = document.body.style.height = (1080 * s) + 'px';
+      }
+      window.addEventListener('resize', fit);
+      fit();
+    })();
+  </script>
+  <script src="js/core/util.js"></script>
+  <script src="js/core/keys.js"></script>
+  <script src="js/core/settings.js"></script>
+  <script src="js/core/api.js"></script>
+  <script src="js/core/focus.js"></script>
+  <script src="js/core/router.js"></script>
+  <script src="js/core/ui.js"></script>
+  <script src="js/core/coverflow.js"></script>
+  <script src="js/player/backends.js"></script>
+  <script src="js/player/subtitles.js"></script>
+  <script src="js/player/player.js"></script>
+  <script src="js/views/home.js"></script>
+  <script src="js/views/library.js"></script>
+  <script src="js/views/show.js"></script>
+  <script src="js/views/detail.js"></script>
+  <script src="js/views/search.js"></script>
+  <script src="js/views/settings.js"></script>
+  <script src="js/views/setup.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

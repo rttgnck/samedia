@@ -1,0 +1,7 @@
+dist/
+**/__pycache__/
+.pytest_cache/
+server/config/
+*.wgt
+.DS_Store
+.claude/

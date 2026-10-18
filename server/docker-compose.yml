@@ -1,0 +1,17 @@
+# Standalone deployment (outside the nasOS App Store).
+services:
+  samedia:
+    image: ghcr.io/rttgnck/samedia-server:latest
+    build: .
+    container_name: samedia
+    restart: unless-stopped
+    ports:
+      - "8097:8097"
+    environment:
+      SAMEDIA_MEDIA_ROOTS: /media/shares:/media/disks
+      # SAMEDIA_PIN: "1234"
+      # SAMEDIA_TMDB_KEY: "..."
+    volumes:
+      - ./config:/config
+      - /srv/nasos/shares:/media/shares:ro
+      - /mnt:/media/disks:ro,rslave

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Samedia Server</title>
+<style>
+  :root { --bg:#0d0f14; --card:#161a22; --line:#262c38; --text:#e8ebf1; --dim:#8a93a6; --accent:#5b8cff; --ok:#3ecf8e; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 0 0 14px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .sub { color: var(--dim); margin-bottom: 28px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 18px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .stat b { display: block; font-size: 28px; } .stat span { color: var(--dim); font-size: 13px; }
+  label { display: block; font-weight: 600; margin: 14px 0 6px; } label small { color: var(--dim); font-weight: 400; }
+  input, textarea { width: 100%; background: #0f1218; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; }
+  textarea { min-height: 90px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .root { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+  .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  .muted { color: var(--dim); font-size: 13px; word-break: break-all; }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; } .check input { width: auto; }
+  #login { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Samedia Server</h1>
+  <div class="sub" id="ver">Media server for the Samedia Samsung TV app</div>
+
+  <section class="card" id="login">
+    <h2>Enter PIN</h2>
+    <div class="row"><input id="pin" type="password" inputmode="numeric" style="max-width:200px"><button id="loginBtn">Unlock</button></div>
+    <p class="muted bad" id="loginErr"></p>
+  </section>
+
+  <div id="app" style="display:none">
+    <section class="card">
+      <h2>Library</h2>
+      <div class="stats">
+        <div class="stat"><b id="nMovies">–</b><span>Movies</span></div>
+        <div class="stat"><b id="nShows">–</b><span>TV shows</span></div>
+        <div class="stat"><b id="nEps">–</b><span>Episodes</span></div>
+        <div class="stat"><b id="nStreams">–</b><span>Active conversions</span></div>
+      </div>
+      <div style="margin-top:18px" class="row">
+        <button id="scanBtn">Scan library now</button>
+        <span class="muted" id="scanText"></span>
+      </div>
+      <div class="bar"><i id="scanBar"></i></div>
+      <p class="muted" id="scanFile"></p>
+    </section>
+
+    <section class="card">
+      <h2>Media folders</h2>
+      <div id="roots"></div>
+      <label>Folders to scan <small>— one per line, as seen inside the container</small></label>
+      <textarea id="media_roots"></textarea>
+    </section>
+
+    <section class="card">
+      <h2>Settings</h2>
+      <label>Server name <small>— shown on the TV</small></label>
+      <input id="server_name">
+      <label>PIN <small>— leave empty for no PIN (anyone on your network can browse)</small></label>
+      <input id="pinSetting" type="text" inputmode="numeric">
+      <label>TMDB API key <small>— optional; fetches posters and plots when no .nfo / local art exists</small></label>
+      <input id="tmdb_key" placeholder="v3 API key or v4 read access token">
+      <label>Rescan every (hours)</label>
+      <input id="scan_interval_hours" type="number" min="0.25" step="0.25" style="max-width:140px">
+      <label>Dolby Digital+ bitrate for converted DTS / TrueHD audio</label>
+      <input id="eac3_bitrate" style="max-width:140px">
+      <div class="check"><input type="checkbox" id="preextract_subs"><span>Pre-extract embedded subtitles during scans <small class="muted">(reads every file once; makes subtitles instant)</small></span></div>
+      <div class="row" style="margin-top:18px"><button id="saveBtn">Save settings</button><span class="muted" id="saveText"></span></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = localStorage.getItem("samedia_token") || "";
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) } });
+  if (res.status === 401) { showLogin(); throw new Error("auth"); }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  return res.json();
+}
+
+function showLogin() { $("login").style.display = "block"; $("app").style.display = "none"; }
+
+$("loginBtn").onclick = async () => {
+  const res = await fetch("/api/v1/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: $("pin").value }) });
+  if (!res.ok) { $("loginErr").textContent = "Wrong PIN"; return; }
+  token = (await res.json()).token; localStorage.setItem("samedia_token", token);
+  $("login").style.display = "none"; start();
+};
+
+async function loadSettings() {
+  const s = await api("/api/v1/admin/settings");
+  $("server_name").value = s.server_name; $("pinSetting").value = s.pin; $("tmdb_key").value = s.tmdb_key;
+  $("scan_interval_hours").value = s.scan_interval_hours; $("eac3_bitrate").value = s.eac3_bitrate;
+  $("preextract_subs").checked = s.preextract_subs; $("media_roots").value = s.media_roots.join("\n");
+}
+
+async function refresh() {
+  const s = await api("/api/v1/admin/status");
+  $("ver").textContent = "Version " + s.version;
+  $("nMovies").textContent = s.stats.movies; $("nShows").textContent = s.stats.shows;
+  $("nEps").textContent = s.stats.episodes; $("nStreams").textContent = s.streams;
+  $("roots").innerHTML = s.roots.map(r => `<div class="root"><span></span><span class="${r.reachable ? "ok" : "bad"}">${r.reachable ? "reachable" : "not found"}</span></div>`).join("");
+  [...$("roots").querySelectorAll(".root span:first-child")].forEach((el, i) => el.textContent = s.roots[i].path);
+  const sc = s.scan;
+  $("scanBtn").disabled = sc.running;
+  $("scanText").textContent = sc.running ? `${sc.phase}… ${sc.processed} / ${sc.found}` :
+    (sc.last_finished ? "Last scan " + new Date(sc.last_finished * 1000).toLocaleString() : "");
+  $("scanBar").style.width = sc.running && sc.found ? (100 * sc.processed / sc.found) + "%" : "0";
+  $("scanFile").textContent = sc.running && sc.current ? sc.current : (sc.last_error ? "Error: " + sc.last_error : "");
+}
+
+$("scanBtn").onclick = async () => { await api("/api/v1/admin/scan", { method: "POST" }); refresh(); };
+$("saveBtn").onclick = async () => {
+  const body = {
+    server_name: $("server_name").value.trim() || "Samedia", pin: $("pinSetting").value.trim(),
+    tmdb_key: $("tmdb_key").value.trim(), scan_interval_hours: parseFloat($("scan_interval_hours").value) || 6,
+    eac3_bitrate: $("eac3_bitrate").value.trim() || "640k", preextract_subs: $("preextract_subs").checked,
+    media_roots: $("media_roots").value.split("\n").map(s => s.trim()).filter(Boolean),
+  };
+  try {
+    await api("/api/v1/admin/settings", { method: "PUT", body: JSON.stringify(body) });
+    $("saveText").textContent = "Saved. Run a scan to pick up folder changes.";
+    if (body.pin) { // the token changes with the PIN
+      const r = await fetch("/api/v1/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: body.pin }) });
+      token = (await r.json()).token; localStorage.setItem("samedia_token", token);
+    } else { token = ""; localStorage.removeItem("samedia_token"); }
+  } catch (e) { $("saveText").textContent = "Error: " + e.message; }
+};
+
+async function start() {
+  try { await loadSettings(); $("app").style.display = "block"; refresh(); setInterval(() => refresh().catch(() => {}), 2000); }
+  catch (e) { if (e.message !== "auth") alert(e.message); }
+}
+start();
+</script>
+</body>
+</html>
