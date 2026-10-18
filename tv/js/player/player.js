@@ -136,7 +136,7 @@
       var body = {
         capabilities: S.capabilities(), start: startSec, session: session,
         audio_index: audioIndex === undefined ? null : audioIndex,
-        prefer_audio_lang: S.get('audioLanguage'), force: force || null,
+        prefer_audio_lang: S.get('audioLanguage'), subtitle_language: S.get('subtitleLanguage'), force: force || null,
       };
       return SM.api.playback(item.id, body).then(function (d) {
         if (destroyed) return;

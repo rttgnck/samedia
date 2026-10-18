@@ -34,20 +34,7 @@ struct HomeView: View {
             }
         }
         .background(backdrop)
-        .navigationTitle(model.info?.name.capitalized ?? "Samedia")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if let p = model.profile {
-                    Menu {
-                        Button("Switch profile", systemImage: "person.2") { model.switchProfile() }
-                        Button("Use a different server", systemImage: "server.rack") { model.forgetServer() }
-                    } label: {
-                        HStack(spacing: 8) { AvatarView(profile: p, size: 30); Text(p.name) }
-                    }
-                }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: ItemRoute.self) { destination(for: $0) }
         .task(id: model.refreshToken) { await load() }
         .refreshable { await load() }
@@ -138,49 +125,102 @@ struct HomeView: View {
     }
 }
 
-/// Posters in a row that tilt away from the centre one, like Cover Flow.
+/// Cover Flow, as on the TV: the centre cover faces you, the others fan out on both sides
+/// facing it. Drags move sideways only and settle on a cover; tapping a side cover brings it
+/// to the centre, tapping the centre one opens it.
 struct CoverFlowView: View {
     let items: [MediaItem]
     @Binding var centered: String?
     var onOpen: (MediaItem) -> Void
 
+    @State private var position: CGFloat = 0          // index of the centre, fractional while dragging
+    @State private var dragStart: CGFloat?
+    @State private var lastTick = 0
+    private let tick = UISelectionFeedbackGenerator()
+
     var body: some View {
         GeometryReader { geo in
-            let height = min(geo.size.height * 0.86, 560)
+            let height = min(geo.size.height * 0.72, 520)
             let width = height * 2 / 3
-            let centerIndex = items.firstIndex { $0.id == centered } ?? 0
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: -width * 0.32) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        PosterView(item: item, width: 600)
-                            .frame(width: width, height: height)
-                            .shadow(color: .black.opacity(0.6), radius: 20, y: 12)
-                            .scrollTransition(.interactive, axis: .horizontal) { content, phase in
-                                content
-                                    .rotation3DEffect(.degrees(phase.value * -58), axis: (x: 0, y: 1, z: 0),
-                                                      anchor: phase.value < 0 ? .trailing : .leading, perspective: 0.45)
-                                    .scaleEffect(1 - min(abs(phase.value), 1) * 0.16)
-                                    .brightness(-min(abs(phase.value), 1) * 0.25)
-                            }
-                            .zIndex(-Double(abs(index - centerIndex)))
-                            .onTapGesture {
-                                if item.id == (centered ?? items.first?.id) {
-                                    onOpen(item)
-                                } else {
-                                    withAnimation(.snappy) { centered = item.id }
-                                }
-                            }
-                            .id(item.id)
-                    }
+            let gap = width * 0.78                       // centre cover to the first side cover
+            let step = width * 0.24                      // between side covers
+            let perItem = max(step * 1.4, 70)            // drag distance that moves one cover
+            ZStack {
+                ForEach(visible, id: \.self) { i in
+                    let p = CGFloat(i) - position
+                    cover(items[i], width: width, height: height)
+                        .rotation3DEffect(.degrees(Double(-max(-1, min(1, p)) * 64)), axis: (x: 0, y: 1, z: 0),
+                                          perspective: 0.5)
+                        .scaleEffect(1 - min(abs(p), 1) * 0.12)
+                        .brightness(-Double(min(abs(p), 1.5)) * 0.18)
+                        .offset(x: abs(p) <= 1 ? p * gap : (p > 0 ? 1 : -1) * (gap + (abs(p) - 1) * step))
+                        .zIndex(-Double(abs(p)))
+                        .onTapGesture { tap(i) }
                 }
-                .scrollTargetLayout()
-                .frame(height: geo.size.height)
             }
-            .contentMargins(.horizontal, (geo.size.width - width) / 2, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $centered, anchor: .center)
-            .onAppear { if centered == nil || !items.contains(where: { $0.id == centered }) { centered = items.first?.id } }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 8)
+                    .onChanged { g in
+                        if dragStart == nil { dragStart = position; tick.prepare() }
+                        let raw = (dragStart ?? 0) - g.translation.width / perItem
+                        position = min(max(raw, -0.35), CGFloat(items.count - 1) + 0.35)
+                        let nearest = Int(position.rounded())
+                        if nearest != lastTick { lastTick = nearest; tick.selectionChanged() }
+                    }
+                    .onEnded { g in
+                        let flung = (dragStart ?? position) - g.predictedEndTranslation.width / perItem
+                        dragStart = nil
+                        settle(on: Int(flung.rounded()))
+                    }
+            )
         }
-        .frame(minHeight: 300)
+        .frame(minHeight: 320)
+        .onAppear {
+            position = CGFloat(items.firstIndex { $0.id == centered } ?? 0)
+            lastTick = Int(position)
+            if centered == nil { centered = items.first?.id }
+        }
+        .onChange(of: centered) { _, id in
+            // moved from outside (e.g. another shelf): follow without a jump if it's already there
+            if let i = items.firstIndex(where: { $0.id == id }), Int(position.rounded()) != i, dragStart == nil {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) { position = CGFloat(i) }
+            }
+        }
+    }
+
+    /// The covers worth drawing: those near the centre.
+    private var visible: [Int] {
+        guard !items.isEmpty else { return [] }
+        let c = Int(position.rounded())
+        return Array(max(0, c - 7)...min(items.count - 1, c + 7))
+    }
+
+    private func settle(on index: Int) {
+        let target = min(max(index, 0), items.count - 1)
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { position = CGFloat(target) }
+        centered = items[target].id
+        if target != lastTick { lastTick = target; tick.selectionChanged() }
+    }
+
+    private func tap(_ i: Int) {
+        if i == Int(position.rounded()) { onOpen(items[i]) } else { settle(on: i) }
+    }
+
+    private func cover(_ item: MediaItem, width: CGFloat, height: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            PosterView(item: item, width: 600)
+                .frame(width: width, height: height)
+                .shadow(color: .black.opacity(0.55), radius: 18, y: 10)
+            // reflection
+            PosterView(item: item, width: 600, showProgress: false)
+                .frame(width: width, height: height)
+                .scaleEffect(x: 1, y: -1)
+                .frame(width: width, height: height * 0.22, alignment: .top)
+                .clipped()
+                .mask(LinearGradient(colors: [.white.opacity(0.28), .clear], startPoint: .top, endPoint: .bottom))
+                .allowsHitTesting(false)
+        }
     }
 }

@@ -94,8 +94,32 @@ def probe(path: Path) -> dict | None:
                 "format": "text" if codec in TEXT_SUB_CODECS else ("pgs" if codec in IMAGE_SUB_CODECS else "unsupported"),
                 "language": _lang(s), "title": tags.get("title"),
                 "default": bool(disp.get("default")), "forced": bool(disp.get("forced")),
+                "frames": subtitle_frames(s),
             })
     return summary
+
+
+def subtitle_frames(stream: dict) -> int | None:
+    """How many subtitle lines a track has, from what the container already records
+    (Matroska statistics tags, MP4 sample counts) - no need to read the file."""
+    tags = stream.get("tags") or {}
+    for key, value in tags.items():
+        if key.upper().startswith("NUMBER_OF_FRAMES") and str(value).isdigit():
+            return int(value)
+    n = stream.get("nb_frames")
+    return int(n) if str(n or "").isdigit() else None
+
+
+def subtitle_frame_counts(path: Path) -> dict[int, int | None]:
+    """{stream index: lines} for the subtitle tracks (headers only, quick)."""
+    cmd = [config.ffprobe, "-v", "error", "-select_streams", "s", "-show_entries",
+           "stream=index,nb_frames:stream_tags", "-of", "json", str(path)]
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=30, check=True).stdout
+        return {s["index"]: subtitle_frames(s) for s in json.loads(out).get("streams", [])}
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, KeyError) as exc:
+        log.debug("subtitle frame count failed for %s: %s", path, exc)
+        return {}
 
 
 def keyframe_at_or_before(path: Path, seconds: float, stream_index: int) -> float:

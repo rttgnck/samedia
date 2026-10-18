@@ -92,29 +92,35 @@ def _pick_audio(audio: list[dict], requested: int | None, prefer_lang: str | Non
 
 
 def subtitle_tracks(item: dict) -> list[dict]:
+    """Every subtitle track of an item, with the ones that only cover foreign-language parts
+    marked forced (see forced.py)."""
+    from . import forced as forced_subs
     media = item.get("media") or {}
     out = []
     for s in media.get("subtitles", []):
-        label = " · ".join(p for p in [lang_name(s.get("language")) or "Unknown", s.get("title")] if p)
-        if s["forced"]:
-            label += " (Forced)"
         out.append({
-            "id": f"e{s['index']}", "source": "embedded", "format": s["format"], "label": label,
-            "language": s.get("language"), "forced": s["forced"], "default": s["default"],
-            "supported": s["format"] in ("text", "pgs"),
+            "id": f"e{s['index']}", "source": "embedded", "format": s["format"],
+            "label": " · ".join(p for p in [lang_name(s.get("language")) or "Unknown", s.get("title")] if p),
+            "title": s.get("title"), "language": s.get("language"), "forced": s["forced"], "default": s["default"],
+            "frames": s.get("frames"), "supported": s["format"] in ("text", "pgs"),
             "url": f"/api/v1/subs/{item['id']}/e{s['index']}" if s["format"] in ("text", "pgs") else None,
         })
+    folder = Path(item["path"]).parent if item.get("path") else None
     for i, s in enumerate(item.get("sidecar_subs") or []):
         label = lang_name(s.get("language")) or "External"
         if s.get("sdh"):
             label += " SDH"
-        if s.get("forced"):
-            label += " (Forced)"
+        frames = forced_subs.cue_count(folder / s["file"]) if folder and s["format"] == "text" else None
         out.append({
             "id": f"x{i}", "source": "external", "format": s["format"], "label": label + " · file",
-            "language": s.get("language"), "forced": s.get("forced", False), "default": False,
-            "supported": True, "url": f"/api/v1/subs/{item['id']}/x{i}",
+            "title": s["file"], "language": s.get("language"), "forced": s.get("forced", False), "default": False,
+            "frames": frames, "supported": True, "url": f"/api/v1/subs/{item['id']}/x{i}",
         })
+    forced_subs.infer(out, media.get("duration") or item.get("duration"))
+    for t in out:
+        if t["forced"]:
+            t["label"] += " (Forced)" if t.get("forced_reason") == "flag" else " (Foreign parts)"
+        t.pop("title", None)
     return out
 
 

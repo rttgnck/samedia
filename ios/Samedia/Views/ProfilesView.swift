@@ -5,8 +5,6 @@ struct ProfilesView: View {
     @Environment(AppModel.self) private var model
     @State private var picking: Profile?
 
-    private let columns = [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 36)]
-
     var body: some View {
         VStack(spacing: 40) {
             Spacer()
@@ -14,7 +12,7 @@ struct ProfilesView: View {
             if model.profiles.isEmpty {
                 if model.busy { ProgressView() } else if let e = model.error { Text(e).foregroundStyle(.secondary) }
             }
-            LazyVGrid(columns: columns, spacing: 36) {
+            CenteredFlow(spacing: 40) {
                 ForEach(model.profiles) { p in
                     Button { model.select(p) } label: {
                         VStack(spacing: 12) {
@@ -35,10 +33,7 @@ struct ProfilesView: View {
                     }
                 }
             }
-            .frame(maxWidth: 900)
-            if model.hasAvatars {
-                Text("Touch and hold a profile to change its picture").font(.footnote).foregroundStyle(.tertiary)
-            }
+            .frame(maxWidth: 1000)
             Spacer()
             Button("Use a different server") { model.forgetServer() }.font(.footnote)
         }

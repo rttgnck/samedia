@@ -26,7 +26,7 @@ struct DetailView: View {
                     }
                     if let error { Text(error).foregroundStyle(.red) }
                 }
-                .padding(28)
+                .padding(28).padding(.leading, Rail.width - 28)
             }
         }
         .ignoresSafeArea(edges: .top)
@@ -72,7 +72,7 @@ struct DetailView: View {
                     buttons.padding(.top, 6)
                 }
             }
-            .padding(28)
+            .padding(28).padding(.leading, Rail.width - 28)
         }
     }
 
@@ -148,7 +148,7 @@ struct EpisodeRow: View {
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
-            .padding(.horizontal, 20).padding(.vertical, 8)
+            .padding(.horizontal, 20).padding(.leading, Rail.width - 20).padding(.vertical, 8)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -190,10 +190,10 @@ struct ShowView: View {
                             .buttonStyle(.borderedProminent).controlSize(.large).padding(.top, 4)
                         }
                     }
-                    .padding(28)
+                    .padding(28).padding(.leading, Rail.width - 28)
                 }
                 if let plot = (detail?.show ?? show).plot {
-                    Text(plot).foregroundStyle(.secondary).padding(.horizontal, 28).frame(maxWidth: 860, alignment: .leading)
+                    Text(plot).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.leading, Rail.width - 28).frame(maxWidth: 860, alignment: .leading)
                 }
                 if let detail {
                     if detail.seasons.count > 1 {
@@ -202,14 +202,14 @@ struct ShowView: View {
                                 Text(s.season == 0 ? "Specials" : "Season \(s.season)").tag(s.season)
                             }
                         }
-                        .pickerStyle(.segmented).padding(.horizontal, 28)
+                        .pickerStyle(.segmented).padding(.horizontal, 28).padding(.leading, Rail.width - 28)
                     }
                     let current = season ?? detail.nextUp?.season ?? detail.seasons.first?.season
                     ForEach(detail.episodes.filter { current == nil || $0.season == current }) { ep in
                         EpisodeRow(episode: ep)
                     }
                 } else if let error {
-                    Text(error).foregroundStyle(.red).padding(28)
+                    Text(error).foregroundStyle(.red).padding(28).padding(.leading, Rail.width - 28)
                 } else {
                     ProgressView().frame(maxWidth: .infinity).padding(40)
                 }
@@ -253,7 +253,7 @@ struct CollectionView: View {
                 Text([collection.years, collection.itemCount.map { "\($0) movies" }].compactMap { $0 }.joined(separator: "  ·  "))
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.top, 10)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.leading, Rail.width - 20).padding(.top, 10)
             if let detail { PosterGrid(items: detail.items) } else { ProgressView().padding(40) }
         }
         .navigationBarTitleDisplayMode(.inline)

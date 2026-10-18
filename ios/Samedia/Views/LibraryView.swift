@@ -50,7 +50,7 @@ struct LibraryView: View {
                 chip("All", selected: genre == nil) { genre = nil }
                 ForEach(genres, id: \.self) { g in chip(g, selected: genre == g) { genre = g } }
             }
-            .padding(.horizontal, 20).padding(.vertical, 8)
+            .padding(.trailing, 20).padding(.leading, Rail.width + 6).padding(.vertical, 8)
         }
     }
 
@@ -79,7 +79,7 @@ struct PosterGrid: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(20)
+        .padding(.vertical, 20).padding(.trailing, 20).padding(.leading, Rail.width + 6)   // clear of the rail
     }
 }
 
@@ -98,7 +98,7 @@ struct SearchView: View {
                 if !r.shows.isEmpty { section("TV Shows", r.shows) }
                 if !r.episodes.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("Episodes").font(.title2.bold()).padding(.horizontal, 20)
+                        Text("Episodes").font(.title2.bold()).padding(.horizontal, 20).padding(.leading, Rail.width - 20)
                         ForEach(r.episodes) { ep in EpisodeRow(episode: ep) }
                     }
                 }
@@ -122,7 +122,7 @@ struct SearchView: View {
 
     private func section(_ title: String, _ items: [MediaItem]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.title2.bold()).padding(.horizontal, 20).padding(.top, 12)
+            Text(title).font(.title2.bold()).padding(.horizontal, 20).padding(.leading, Rail.width - 20).padding(.top, 12)
             PosterGrid(items: items)
         }
     }

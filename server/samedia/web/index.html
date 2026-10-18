@@ -27,6 +27,7 @@
   .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
   .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
   .muted { color: var(--dim); font-size: 13px; word-break: break-all; }
+  a { color: var(--accent); }
   .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; } .check input { width: auto; }
   #login { display: none; }
   .person, .tv { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -115,6 +116,14 @@
         Stored only on this server; a saved key shows as ••••1234.</small></label>
       <div class="row"><input id="tmdb_key" placeholder="v3 API key or v4 read access token" autocomplete="off" style="flex:1">
         <button class="ghost" id="refreshMetaBtn" title="Fetch TMDB details again for every title">Refresh metadata</button></div>
+      <label>OpenSubtitles API key <small>— optional; when a film in English has foreign-language parts but no
+        subtitles for them, they're downloaded from <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener">OpenSubtitles.com</a>
+        (free account → API consumers → new consumer). 5 downloads a day; add your login for more.</small></label>
+      <input id="opensubtitles_key" placeholder="API key" autocomplete="off">
+      <div class="row">
+        <input id="opensubtitles_user" placeholder="OpenSubtitles username (optional)" autocomplete="off" style="flex:1">
+        <input id="opensubtitles_password" type="password" placeholder="password (optional)" autocomplete="new-password" style="flex:1">
+      </div>
       <label>Rescan every (hours)</label>
       <input id="scan_interval_hours" type="number" min="0.25" step="0.25" style="max-width:140px">
       <label>Dolby Digital+ bitrate for converted DTS / TrueHD audio</label>
@@ -303,6 +312,8 @@ $("addPerson").onclick = async () => {
 async function loadSettings() {
   const s = await api("/api/v1/admin/settings");
   $("server_name").value = s.server_name; $("pinSetting").value = s.pin; $("tmdb_key").value = s.tmdb_key;
+  $("opensubtitles_key").value = s.opensubtitles_key || ""; $("opensubtitles_user").value = s.opensubtitles_user || "";
+  $("opensubtitles_password").value = s.opensubtitles_password || "";
   $("scan_interval_hours").value = s.scan_interval_hours; $("eac3_bitrate").value = s.eac3_bitrate;
   $("preextract_subs").checked = s.preextract_subs; $("media_roots").value = s.media_roots.join("\n");
 }
@@ -332,7 +343,9 @@ $("refreshMetaBtn").onclick = async () => {
 $("saveBtn").onclick = async () => {
   const body = {
     server_name: $("server_name").value.trim() || "Samedia", pin: $("pinSetting").value.trim(),
-    tmdb_key: $("tmdb_key").value.trim(), scan_interval_hours: parseFloat($("scan_interval_hours").value) || 6,
+    tmdb_key: $("tmdb_key").value.trim(), opensubtitles_key: $("opensubtitles_key").value.trim(),
+    opensubtitles_user: $("opensubtitles_user").value.trim(), opensubtitles_password: $("opensubtitles_password").value,
+    scan_interval_hours: parseFloat($("scan_interval_hours").value) || 6,
     eac3_bitrate: $("eac3_bitrate").value.trim() || "640k", preextract_subs: $("preextract_subs").checked,
     media_roots: $("media_roots").value.split("\n").map(s => s.trim()).filter(Boolean),
   };

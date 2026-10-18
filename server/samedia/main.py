@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import art, db, frames, hls, library, playback, subtitles
+from . import art, db, forced, frames, hls, library, opensubs, playback, probe, subtitles
 from .config import API_VERSION, EDITABLE, VERSION, apply_overrides, config
 from .scanner import scanner
 
@@ -68,7 +68,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars", "hls"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars", "hls", "foreign-parts-subtitles"]}
 
 
 @app.post("/api/v1/auth")
@@ -445,6 +445,7 @@ class PlaybackBody(BaseModel):
     start: float = 0
     force: str | None = None           # None | "remux" | "transcode" | "hls"
     prefer_audio_lang: str | None = None
+    subtitle_language: str | None = None   # the viewer's: foreign-parts subtitles are looked up in it
     session: str | None = None
 
 
@@ -458,15 +459,44 @@ def start_playback(item_id: str, body: PlaybackBody, v: library.Viewer = Me):
     if body.force not in (None, "remux", "transcode", "hls"):
         raise HTTPException(400, "force must be remux, transcode or hls")
     session = re.sub(r"[^A-Za-z0-9_-]", "", body.session or "")[:40] or uuid.uuid4().hex[:12]
+    _count_subtitle_lines(item_id, row)
     decision = playback.decide(row, body.capabilities, audio_index=body.audio_index, start=max(body.start, 0),
                                force=body.force, prefer_lang=body.prefer_audio_lang, session=session,
                                token=access_token() if config.pin else "-")
     decision["session"] = session
+    language = re.sub(r"[^a-z]", "", (body.subtitle_language or "en").lower())[:3] or "en"
+    language = {"eng": "en", "fre": "fr", "fra": "fr", "ger": "de", "deu": "de", "spa": "es"}.get(language, language)
+    if _wants_foreign_parts(decision, language):
+        if opensubs.cached(item_id, language) or (opensubs.configured() and opensubs.forced_subtitle(row, language)):
+            decision["subtitle_tracks"].append(opensubs.track(item_id, language))
     # Warm the subtitle cache so tracks are ready by the time the user opens the menu.
     if any(s["format"] in ("text", "pgs") for s in row["media"].get("subtitles", [])):
         subtitles.extract_in_background(item_id, Path(row["path"]), row["media"])
     log.info("play %s (%s): %s %s", row["title"], item_id, decision["mode"], decision["reasons"])
     return decision
+
+
+def _count_subtitle_lines(item_id: str, row: dict) -> None:
+    """Files scanned before line counts were recorded get them now (headers only, once)."""
+    media = row.get("media") or {}
+    subs = media.get("subtitles") or []
+    if not subs or all("frames" in s for s in subs):
+        return
+    counts = probe.subtitle_frame_counts(Path(row["path"]))
+    for s in subs:
+        s["frames"] = counts.get(s["index"])
+    db.execute("UPDATE items SET media=? WHERE id=?", (json.dumps(media), item_id))
+
+
+def _wants_foreign_parts(decision: dict, language: str) -> bool:
+    """The audio is in the viewer's language (or unmarked) and no track covers the
+    foreign-language parts in it."""
+    want = forced.language_key(language)
+    audio = next((a for a in decision.get("audio_tracks", []) if a["index"] == decision.get("audio_index")), None)
+    if audio and audio.get("language") and forced.language_key(audio["language"]) != want:
+        return False                     # foreign audio: the full subtitles are the ones to show
+    return not any(t["forced"] and forced.language_key(t.get("language")) in (want, None)
+                   for t in decision.get("subtitle_tracks", []))
 
 
 _RANGE = re.compile(r"bytes=(\d*)-(\d*)")
@@ -619,6 +649,12 @@ async def subtitle(item_id: str, track: str, wait: float = Query(25, le=60)):
     row = library.get_item(item_id)
     if not row:
         raise HTTPException(404)
+    if track.startswith("o-"):
+        found = opensubs.cached(item_id, re.sub(r"[^a-z]", "", track[2:])[:3])
+        if not found:
+            raise HTTPException(404)
+        vtt = await run_in_threadpool(subtitles.sidecar_as_vtt, item_id, found)
+        return FileResponse(vtt, media_type="text/vtt; charset=utf-8")
     if track.startswith("x") and track[1:].isdigit():
         side = (row.get("sidecar_subs") or [])
         i = int(track[1:])
@@ -692,6 +728,7 @@ def admin_status():
 
 
 _MASK = "••••"
+_SECRETS = ("tmdb_key", "opensubtitles_key", "opensubtitles_password")
 
 
 def _masked(key: str) -> str:
@@ -701,8 +738,9 @@ def _masked(key: str) -> str:
 @app.get("/api/v1/admin/settings", dependencies=[api])
 def get_settings():
     out = {k: getattr(config, k) for k in EDITABLE}
-    # Never send the saved TMDB key back out; the admin page shows its last 4 characters
-    out["tmdb_key"] = _masked(config.tmdb_key)
+    # Never send saved keys and passwords back out; the admin page shows their last 4 characters
+    for secret in _SECRETS:
+        out[secret] = _masked(getattr(config, secret))
     return out
 
 
@@ -711,8 +749,9 @@ def put_settings(body: dict):
     unknown = set(body) - set(EDITABLE)
     if unknown:
         raise HTTPException(400, f"Unknown settings: {', '.join(sorted(unknown))}")
-    if str(body.get("tmdb_key", "")).startswith(_MASK):
-        body.pop("tmdb_key")            # the masked value came back unchanged
+    for secret in _SECRETS:
+        if str(body.get(secret, "")).startswith(_MASK):
+            body.pop(secret)            # the masked value came back unchanged
     old_key = config.tmdb_key
     apply_overrides(body)
     for k in body:

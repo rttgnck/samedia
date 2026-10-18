@@ -49,8 +49,7 @@
 
   SM.router.register('profiles', function () {
     var tiles = el('div.profile-tiles', { 'data-group': '' });
-    var hint = el('div.profiles-hint', { text: 'Hold OK on a profile to change its picture' });
-    var root = el('div.profiles', [el('h1', { text: "Who's watching?" }), tiles, hint]);
+    var root = el('div.profiles', [el('h1', { text: "Who's watching?" }), tiles]);
     var view = { el: root, fullscreen: true };
 
     function tile(p) {
@@ -65,7 +64,6 @@
     }
 
     function load(focusId) {
-      hint.hidden = !hasPictures();
       return SM.api.profiles().then(function (r) {
         SM.util.clear(tiles);
         r.profiles.forEach(function (p) { tiles.appendChild(tile(p)); });

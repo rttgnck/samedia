@@ -197,6 +197,32 @@ struct CollectionDetail: Decodable {
     }
 }
 
+struct AudioTrack: Decodable {
+    let index: Int
+    let language: String?
+}
+
+struct SubtitleTrack: Decodable {
+    let id: String
+    let format: String
+    let label: String
+    let language: String?
+    let forced: Bool
+    let supported: Bool
+    let url: String?
+    enum CodingKeys: String, CodingKey { case id, format, label, language, forced, supported, url }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        format = (try? c.decode(String.self, forKey: .format)) ?? "text"
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        language = try? c.decode(String.self, forKey: .language)
+        forced = (try? c.decode(Bool.self, forKey: .forced)) ?? false
+        supported = (try? c.decode(Bool.self, forKey: .supported)) ?? false
+        url = try? c.decode(String.self, forKey: .url)
+    }
+}
+
 struct PlaybackDecision: Decodable {
     let mode: String
     let url: String
@@ -205,7 +231,12 @@ struct PlaybackDecision: Decodable {
     let duration: Double?
     let session: String?
     let warnings: [String]
-    enum CodingKeys: String, CodingKey { case mode, url, start_offset, seekable, duration, session, warnings }
+    let audioIndex: Int?
+    let audioTracks: [AudioTrack]
+    let subtitleTracks: [SubtitleTrack]
+    enum CodingKeys: String, CodingKey {
+        case mode, url, start_offset, seekable, duration, session, warnings, audio_index, audio_tracks, subtitle_tracks
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         mode = try c.decode(String.self, forKey: .mode)
@@ -215,7 +246,34 @@ struct PlaybackDecision: Decodable {
         duration = try? c.decode(Double.self, forKey: .duration)
         session = try? c.decode(String.self, forKey: .session)
         warnings = (try? c.decode([String].self, forKey: .warnings)) ?? []
+        audioIndex = try? c.decode(Int.self, forKey: .audio_index)
+        audioTracks = (try? c.decode([AudioTrack].self, forKey: .audio_tracks)) ?? []
+        subtitleTracks = (try? c.decode([SubtitleTrack].self, forKey: .subtitle_tracks)) ?? []
     }
+
+    /// Subtitles to show by themselves: full ones when the audio isn't in the viewer's language,
+    /// otherwise only those for the foreign-language parts (same rule as the TV app).
+    func automaticSubtitles(language: String) -> SubtitleTrack? {
+        let usable = subtitleTracks.filter { $0.supported && $0.format == "text" && $0.url != nil
+            && ($0.language == nil || Language.same($0.language, language)) }
+        let audio = audioTracks.first { $0.index == audioIndex }
+        if let spoken = audio?.language, !Language.same(spoken, language) {
+            return usable.first { !$0.forced } ?? usable.first { $0.forced }
+        }
+        return usable.first { $0.forced }
+    }
+}
+
+enum Language {
+    private static let twoLetter = ["eng": "en", "fre": "fr", "fra": "fr", "ger": "de", "deu": "de", "spa": "es",
+                                    "ita": "it", "jpn": "ja", "kor": "ko", "chi": "zh", "zho": "zh", "por": "pt",
+                                    "rus": "ru", "dut": "nl", "nld": "nl", "swe": "sv", "nor": "no", "dan": "da",
+                                    "fin": "fi", "pol": "pl", "hin": "hi", "ara": "ar", "tur": "tr"]
+    static func code(_ s: String?) -> String? {
+        guard let s = s?.lowercased().split(separator: "-").first.map(String.init), !s.isEmpty else { return nil }
+        return twoLetter[s] ?? s
+    }
+    static func same(_ a: String?, _ b: String?) -> Bool { code(a) != nil && code(a) == code(b) }
 }
 
 struct ProgressReply: Decodable {

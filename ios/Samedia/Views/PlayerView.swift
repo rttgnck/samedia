@@ -16,6 +16,7 @@ final class PlayerCoordinator: NSObject {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var finished = false
+    private var subtitles: SubtitleOverlay?
     private var inPictureInPicture = false
 
     func play(_ item: MediaItem, start: Double?, model: AppModel) {
@@ -33,7 +34,8 @@ final class PlayerCoordinator: NSObject {
             let language = Locale.current.language.languageCode?.identifier ?? "en"
             let d = try await api.post("/api/v1/items/\(item.id)/playback",
                                        ["capabilities": APIClient.capabilities, "start": start ?? 0,
-                                        "session": session, "prefer_audio_lang": language],
+                                        "session": session, "prefer_audio_lang": language,
+                                        "subtitle_language": language],
                                        as: PlaybackDecision.self)
             guard d.mode == "direct" || d.mode == "hls" else {
                 alert("Can't play this here",
@@ -66,10 +68,26 @@ final class PlayerCoordinator: NSObject {
             }
             player.play()
             observe(player, playerItem)
+            await showSubtitles(d, language: language, api: api)
         } catch {
             close(report: false)
             alert("Playback failed", error.localizedDescription)
         }
+    }
+
+    /// Subtitles that come on by themselves: full ones for audio in another language, else only
+    /// the foreign-language parts (when the film has some).
+    private func showSubtitles(_ d: PlaybackDecision, language: String, api: APIClient) async {
+        guard let track = d.automaticSubtitles(language: language), let path = track.url,
+              let player, let controller else { return }
+        guard let (data, _) = try? await APIClient.session.data(from: api.url(path)),
+              let text = String(data: data, encoding: .utf8) else { return }
+        let cues = WebVTT.parse(text)
+        guard !cues.isEmpty, self.player === player else { return }
+        let overlay = SubtitleOverlay()
+        overlay.attach(to: controller, player: player, cues: cues, offset: d.startOffset)
+        subtitles = overlay
+        print("[Samedia] subtitles: \(track.label), \(cues.count) lines")
     }
 
     private func waitUntilReady(_ item: AVPlayerItem) async throws {
@@ -124,6 +142,8 @@ final class PlayerCoordinator: NSObject {
         if send { report() }
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
         timeObserver = nil
+        subtitles?.detach()
+        subtitles = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         cancellables = []

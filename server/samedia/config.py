@@ -9,7 +9,7 @@ import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 API_VERSION = 1
 
 
@@ -37,6 +37,11 @@ class Config:
     media_roots: list[str] = field(default_factory=lambda: _env_list("SAMEDIA_MEDIA_ROOTS", "/media"))
     pin: str = os.environ.get("SAMEDIA_PIN", "")
     tmdb_key: str = os.environ.get("SAMEDIA_TMDB_KEY", "")
+    # OpenSubtitles.com, for foreign-parts subtitles a file doesn't have (optional; the login
+    # only raises the daily download allowance)
+    opensubtitles_key: str = os.environ.get("SAMEDIA_OPENSUBTITLES_KEY", "")
+    opensubtitles_user: str = os.environ.get("SAMEDIA_OPENSUBTITLES_USER", "")
+    opensubtitles_password: str = os.environ.get("SAMEDIA_OPENSUBTITLES_PASSWORD", "")
     scan_interval_hours: float = float(os.environ.get("SAMEDIA_SCAN_INTERVAL_HOURS", "6"))
     probe_workers: int = int(os.environ.get("SAMEDIA_PROBE_WORKERS", "2"))
     # Extract all subtitle tracks right after a file is scanned (one read of the file).
@@ -72,6 +77,9 @@ EDITABLE = {
     "media_roots": _path_list,
     "pin": str,
     "tmdb_key": str,
+    "opensubtitles_key": str,
+    "opensubtitles_user": str,
+    "opensubtitles_password": str,
     "scan_interval_hours": float,
     "preextract_subs": bool,
     "eac3_bitrate": str,

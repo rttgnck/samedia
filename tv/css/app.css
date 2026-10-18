@@ -441,7 +441,6 @@ video.av-object { background: #000; object-fit: contain; }
 .avatar { width: 46px; height: 46px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 22px; font-weight: 800; color: #fff; }
 .avatar.kids { box-shadow: 0 0 0 3px var(--ok); }
 .avatar img, .profile-avatar img, .picture img { width: 100%; height: 100%; border-radius: 50%; display: block; }
-.profiles-hint { margin-top: 64px; font-size: 22px; color: var(--faint); }
 
 /* picture picker (hold OK on a profile, or Settings → Profile picture) */
 .dialog.picture-picker { max-width: 1300px; text-align: center; padding: 40px 48px 48px; }
