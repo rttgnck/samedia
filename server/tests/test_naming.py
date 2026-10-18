@@ -39,3 +39,12 @@ def test_resolution_is_not_an_episode():
 
 def test_split_title_year_keeps_numeric_titles():
     assert split_title_year("2012") == ("2012", None)
+
+
+def test_hidden_and_appledouble_files_are_ignored():
+    from pathlib import Path
+    from samedia.naming import is_ignored
+    root = Path("/media")
+    assert is_ignored(Path("/media/Movies/._Dune.Part.Two.2024.mkv"), root)
+    assert is_ignored(Path("/media/.hidden.mkv"), root)
+    assert not is_ignored(Path("/media/Movies/Dune.Part.Two.2024.mkv"), root)

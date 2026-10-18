@@ -76,6 +76,9 @@ def is_ignored(path: Path, root: Path) -> bool:
         rel = path.relative_to(root)
     except ValueError:
         return True
+    # Hidden files, incl. macOS "._name" AppleDouble files left on non-Mac disks (not videos)
+    if path.name.startswith("."):
+        return True
     for part in rel.parts[:-1]:
         if part.lower() in IGNORED_DIRS or part.startswith("."):
             return True

@@ -12,6 +12,8 @@
 (function () {
   'use strict';
 
+  var PREPARE_TIMEOUT_MS = 30000; // a file the TV can't open may never call back
+
   function Emitter() { this._h = {}; }
   Emitter.prototype.on = function (n, fn) { (this._h[n] = this._h[n] || []).push(fn); };
   Emitter.prototype.emit = function (n, a) { (this._h[n] || []).forEach(function (fn) { fn(a); }); };
@@ -32,6 +34,19 @@
     this._closeQuiet();
     this._time = 0;
     return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        self._closeQuiet();
+        reject(new Error('The TV could not open this video (no response after ' + PREPARE_TIMEOUT_MS / 1000 + 's)'));
+      }, PREPARE_TIMEOUT_MS);
+      function done(fn, arg) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn(arg);
+      }
       try {
         av.open(url);
         av.setDisplayRect(0, 0, 1920, 1080);
@@ -57,13 +72,14 @@
           ondrmevent: function () {},
         });
         av.prepareAsync(function () {
+          if (settled) return;
           self.emit('ready');
-          resolve();
+          done(resolve);
         }, function (err) {
-          reject(new Error(err && err.name ? err.name : 'PLAYER_ERROR_PREPARE'));
+          done(reject, new Error(err && err.name ? err.name : 'PLAYER_ERROR_PREPARE'));
         });
       } catch (e) {
-        reject(e);
+        done(reject, e);
       }
     });
   };
