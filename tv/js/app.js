@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.4.4';
+  SM.VERSION = '0.4.5';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [

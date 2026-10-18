@@ -568,6 +568,7 @@
           state: backend.state ? backend.state() : null, osd: osdVisible(),
           center: SM.devlog.at(960, 540), near: SM.devlog.near(960, 540, 200), focus: SM.devlog.describe(SM.focus.get()) });
       }
+      if (SM.devlog.on) devMarkTest();
       var t = now();
       if (subRenderer) subRenderer.update(t);
       if (osdVisible()) renderBar();
@@ -614,6 +615,41 @@
       }
       return false;
     };
+
+    // Developer builds: a labelled two-step test, 10 s after the controls hide, to find what
+    // draws a mark in the middle of the picture. 1: the picture shrinks to the top-left corner
+    // (a mark from the video itself moves with it). 2: the picture is full again but the
+    // <object> the TV's player is attached to moves to a corner (a mark it draws goes with it).
+    var devTicks = 0, devStep = 0, devLabel = null;
+    function devSetStep(step, text) {
+      if (step === devStep) return;
+      devStep = step;
+      var obj = backend.obj, av = backend.av;
+      try {
+        if (av) av.setDisplayRect.apply(av, step === 1 ? [0, 0, 960, 540] : [0, 0, 1920, 1080]);
+      } catch (e) { SM.devlog.log('dev.test.rect.fail', String(e && e.name)); }
+      if (obj) obj.style.cssText = step === 2 ? 'left:1904px;top:1064px;width:16px;height:16px;' : '';
+      if (!devLabel) {
+        devLabel = el('div', { style: { position: 'absolute', left: '40px', top: '40px', zIndex: 50, padding: '14px 24px',
+          borderRadius: '12px', background: 'rgba(0,0,0,.8)', color: '#fff', fontSize: '34px', fontWeight: 700 } });
+        root.appendChild(devLabel);
+      }
+      devLabel.textContent = text || '';
+      devLabel.style.display = text ? 'block' : 'none';
+      SM.devlog.log('dev.test', { step: step, label: text || '' });
+    }
+    function devMarkTest() {
+      if (devTicks < 0) return;                              // finished or abandoned
+      if (!playing || buffering || osdVisible()) {
+        if (devStep) { devSetStep(0, ''); devTicks = -1; SM.devlog.log('dev.test', 'stopped (controls or pause)'); }
+        return;
+      }
+      var n = ++devTicks;
+      if (n === 50) devSetStep(1, 'Test 1 of 2: picture moved to top-left');
+      else if (n === 100) devSetStep(2, 'Test 2 of 2: video element moved to a corner');
+      else if (n === 150) devSetStep(3, 'Tests done');
+      else if (n === 165) { devSetStep(0, ''); devTicks = -1; }
+    }
 
     function setPlayingClass(on) {
       document.documentElement.classList.toggle('playing', on);
