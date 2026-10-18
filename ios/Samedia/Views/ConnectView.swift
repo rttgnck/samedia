@@ -28,7 +28,17 @@ struct ConnectView: View {
                     }
                 } else {
                     Section {
-                        if discovery.servers.isEmpty {
+                        if discovery.blocked && discovery.servers.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Samedia isn't allowed to look on your network", systemImage: "wifi.exclamationmark")
+                                    .foregroundStyle(.orange)
+                                Text("Turn on Local Network for Samedia in Settings, or enter the address below.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                Button("Open Settings") {
+                                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                                }
+                            }
+                        } else if discovery.servers.isEmpty {
                             HStack {
                                 if discovery.searching { ProgressView().padding(.trailing, 6) }
                                 Text(discovery.searching ? "Looking on your network…" : "No server found automatically.")
@@ -76,6 +86,7 @@ struct ConnectView: View {
             .frame(maxWidth: .infinity)
         }
         .onAppear { discovery.start() }
+        .refreshable { discovery.start() }
         .onDisappear { discovery.stop() }
     }
 
