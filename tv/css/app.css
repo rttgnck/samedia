@@ -271,6 +271,10 @@ body.no-nav .nav { display: none; }
 /* ── player ────────────────────────────────────────────────────── */
 .player { background: transparent; }
 .av-mount, .av-object { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 1920px; height: 1080px; }
+/* Samsung's player element: tiny and out of the way (see backends.js) */
+.av-object.av-plugin { left: 1904px; top: 1064px; right: auto; bottom: auto; width: 16px; height: 16px; }
+/* Hides the picture (the page is drawn over the video) while a resume seeks into place */
+.player.cover-video { background: #000; }
 video.av-object { background: #000; object-fit: contain; }
 /* Only in the page while bitmap subtitles show: anything left over the video plane can show on this TV */
 .subs-canvas { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 1920px; height: 1080px; pointer-events: none; object-fit: contain;

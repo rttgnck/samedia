@@ -116,45 +116,74 @@
     try { return this.av.getState() === 'PLAYING'; } catch (e) { return false; }
   };
 
-  /** Seek to an absolute time; if the TV refuses (seen: InvalidValuesError), try a relative jump. */
+  /**
+   * Seek to an absolute time. This TV has refused a plain seekTo() on our HTTP streams
+   * (InvalidValuesError), so several ways are tried in turn, each checked against where the
+   * player really is afterwards; the one that works is remembered and tried first next time.
+   * Rejects when none works (the player then lets the server stream from the new position).
+   */
   AVPlayBackend.prototype.seek = function (sec) {
-    var av = this.av, self = this;
-    var before = this.time(), state = this.state();
+    var av = this.av, self = this, ms = Math.max(0, Math.floor(sec * 1000));
     var dur = null;
     try { dur = av.getDuration(); } catch (e) { /* unknown */ }
-    SM.devlog.log('av.seek', { to: sec, from: before, state: state, duration: dur });
+    SM.devlog.log('av.seek', { to: sec, from: this.time(), state: this.state(), duration: dur });
     function errName(e) { return e && (e.name || e.message || String(e)); }
 
-    function jump(resolve, reject, firstErr) {
-      var delta = Math.round((sec - self.time()) * 1000);
-      var fn = delta >= 0 ? 'jumpForward' : 'jumpBackward';
-      try {
-        av[fn](Math.abs(delta), function () {
-          SM.devlog.log('av.jump.ok', { fn: fn, delta: delta, now: self.time() });
-          self._time = sec; resolve();
-        }, function (e) {
-          SM.devlog.log('av.jump.fail', { fn: fn, delta: delta, err: errName(e) });
-          reject(firstErr || e);
-        });
-      } catch (e) {
-        SM.devlog.log('av.jump.throw', { fn: fn, err: errName(e) });
-        reject(firstErr || e);
-      }
-    }
+    var methods = {
+      seekTo: function (ok, fail) { av.seekTo(ms, ok, fail); },
+      pausedSeekTo: function (ok, fail) {
+        var resume = self.state() === 'PLAYING';
+        if (resume) av.pause();
+        av.seekTo(ms, function () { if (resume) av.play(); ok(); }, function (e) { if (resume) av.play(); fail(e); });
+      },
+      syncSeekTo: function (ok) { av.seekTo(ms); ok(); },      // the older form, without callbacks
+      jump: function (ok, fail) {
+        var delta = ms - Math.round(self.time() * 1000);
+        av[delta >= 0 ? 'jumpForward' : 'jumpBackward'](Math.abs(delta), ok, fail);
+      },
+    };
+    var order = ['seekTo', 'pausedSeekTo', 'syncSeekTo', 'jump'];
+    var known = SM.settings.get('avSeekMethod');
+    if (order.indexOf(known) > 0) { order.splice(order.indexOf(known), 1); order.unshift(known); }
 
     return new Promise(function (resolve, reject) {
-      try {
-        av.seekTo(Math.max(0, Math.floor(sec * 1000)), function () {
-          SM.devlog.log('av.seek.ok', { to: sec, now: self.time(), state: self.state() });
-          self._time = sec; resolve();
-        }, function (e) {
-          SM.devlog.log('av.seek.fail', { to: sec, err: errName(e), state: self.state() });
-          jump(resolve, reject, e);
-        });
-      } catch (e) {
-        SM.devlog.log('av.seek.throw', { to: sec, err: errName(e), state: self.state() });
-        jump(resolve, reject, e);
+      var i = 0, firstErr = null;
+      function next(err) {
+        if (err && !firstErr) firstErr = err;
+        if (i >= order.length) { reject(firstErr || new Error('The TV could not seek')); return; }
+        var name = order[i++], settled = false;
+        var fail = function (e) {
+          if (settled) return;
+          settled = true;
+          SM.devlog.log('av.seek.fail', { method: name, to: sec, err: errName(e), state: self.state() });
+          next(e);
+        };
+        var ok = function () {
+          if (settled) return;
+          settled = true;
+          verify(name);
+        };
+        try { methods[name](ok, fail); } catch (e) { fail(e); }
       }
+      // A success callback alone isn't proof: the position must actually have moved there
+      function verify(name) {
+        var t0 = Date.now();
+        (function check() {
+          var now = self.time();
+          if (Math.abs(now - sec) < 15) {
+            SM.devlog.log('av.seek.ok', { method: name, to: sec, now: now, ms: Date.now() - t0, state: self.state() });
+            SM.settings.set('avSeekMethod', name);
+            self._time = sec;
+            resolve(name);
+          } else if (Date.now() - t0 > 4000) {
+            SM.devlog.log('av.seek.nomove', { method: name, to: sec, now: now, state: self.state() });
+            next(new Error('The TV did not move to the new position'));
+          } else {
+            setTimeout(check, 250);
+          }
+        })();
+      }
+      next();
     });
   };
 
@@ -258,7 +287,10 @@
         obj.setAttribute('tabindex', '-1');
         // Keys must stay with the page, never go to the video plug-in
         obj.addEventListener('focus', function () { obj.blur(); });
-        obj.className = 'av-object';
+        // The element itself paints a small white mark at its centre on some TVs (2022 Frame,
+        // Tizen 6.5). The video doesn't need it to be big: setDisplayRect() places the picture
+        // and the page is transparent while playing. So it sits, tiny, in a corner.
+        obj.className = 'av-object av-plugin';
         mount.appendChild(obj);
         return new AVPlayBackend(obj);
       }

@@ -14,7 +14,8 @@
     profileKids: false,
     profileAvatar: '',          // picture name on the server ('' = initial)
     groupCollections: true,     // fold franchise movies into one collection in Movies
-    avSeekBroken: false,        // learned: this TV's player can't seek in our HTTP streams
+    avSeekBroken: '',           // learned: app version in which no way of seeking in our HTTP streams worked
+    avSeekMethod: '',           // learned: the way of seeking that works on this TV
     deviceId: '',               // this TV's id for the server (per-TV profile rules)
     audioLanguage: 'en',        // preferred audio language (ISO 639-1 prefix)
     subtitleMode: 'auto',       // off | forced | auto (on when audio isn't your language) | always

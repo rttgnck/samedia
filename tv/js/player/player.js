@@ -119,12 +119,15 @@
     }
     function now() { return offset + decoderTime(); }
 
+    /** No way of seeking in the original file worked on this TV (with this app version). */
+    function seekBroken() { return S.get('avSeekBroken') === SM.VERSION; }
+
     // ── start / restart ──
     function start(startSec, audioIndex, force) {
       ended = false;
       setBuffering(true);
       // On TVs that can't seek in a file, starting mid-way means letting the server start there
-      if (!force && startSec > 1 && S.get('avSeekBroken')) force = 'remux';
+      if (!force && startSec > 1 && seekBroken()) force = 'remux';
       var body = {
         capabilities: S.capabilities(), start: startSec, session: session,
         audio_index: audioIndex === undefined ? null : audioIndex,
@@ -150,9 +153,16 @@
           if (destroyed) return;
           var after = Promise.resolve();
           if (d.seekable && startSec > 1) {
-            after = backend.seek(startSec).catch(function (e) {
+            // Resume: start, pause and seek behind a black screen (some TVs only seek once playing)
+            root.classList.add('cover-video');
+            backend.play();
+            backend.pause();
+            after = backend.seek(startSec).then(function () {
+              root.classList.remove('cover-video');
+            }, function (e) {
               // Remember for next time and restart from the right place on the server
-              S.set('avSeekBroken', true);
+              root.classList.remove('cover-video');
+              S.set('avSeekBroken', SM.VERSION);
               SM.devlog.log('player.resumeFallback', { startSec: startSec });
               return start(startSec, audioIndex, 'remux').then(function () { throw 'restarted'; });
             });
@@ -240,14 +250,14 @@
       SM.devlog.log('player.seekTo', { target: target, now: now(), seekable: decision && decision.seekable, mode: decision && decision.mode });
       target = Math.max(0, Math.min(duration ? duration - 3 : target, target));
       if (!decision) return;
-      if (decision.seekable && S.get('avSeekBroken')) {
+      if (decision.seekable && seekBroken()) {
         start(target, decision.audio_index, 'remux');
       } else if (decision.seekable) {
         setBuffering(true);
         backend.seek(target).then(function () { lastTime = target; lastTimeAt = Date.now(); setBuffering(false); },
           function () {
             // The TV refused to seek in the file: let the server stream from the new position
-            S.set('avSeekBroken', true);
+            S.set('avSeekBroken', SM.VERSION);
             SM.devlog.log('player.seekFallback', { target: target });
             start(target, decision.audio_index, 'remux');
           });
@@ -568,7 +578,6 @@
           state: backend.state ? backend.state() : null, osd: osdVisible(),
           center: SM.devlog.at(960, 540), near: SM.devlog.near(960, 540, 200), focus: SM.devlog.describe(SM.focus.get()) });
       }
-      if (SM.devlog.on) devMarkTest();
       var t = now();
       if (subRenderer) subRenderer.update(t);
       if (osdVisible()) renderBar();
@@ -615,41 +624,6 @@
       }
       return false;
     };
-
-    // Developer builds: a labelled two-step test, 10 s after the controls hide, to find what
-    // draws a mark in the middle of the picture. 1: the picture shrinks to the top-left corner
-    // (a mark from the video itself moves with it). 2: the picture is full again but the
-    // <object> the TV's player is attached to moves to a corner (a mark it draws goes with it).
-    var devTicks = 0, devStep = 0, devLabel = null;
-    function devSetStep(step, text) {
-      if (step === devStep) return;
-      devStep = step;
-      var obj = backend.obj, av = backend.av;
-      try {
-        if (av) av.setDisplayRect.apply(av, step === 1 ? [0, 0, 960, 540] : [0, 0, 1920, 1080]);
-      } catch (e) { SM.devlog.log('dev.test.rect.fail', String(e && e.name)); }
-      if (obj) obj.style.cssText = step === 2 ? 'left:1904px;top:1064px;width:16px;height:16px;' : '';
-      if (!devLabel) {
-        devLabel = el('div', { style: { position: 'absolute', left: '40px', top: '40px', zIndex: 50, padding: '14px 24px',
-          borderRadius: '12px', background: 'rgba(0,0,0,.8)', color: '#fff', fontSize: '34px', fontWeight: 700 } });
-        root.appendChild(devLabel);
-      }
-      devLabel.textContent = text || '';
-      devLabel.style.display = text ? 'block' : 'none';
-      SM.devlog.log('dev.test', { step: step, label: text || '' });
-    }
-    function devMarkTest() {
-      if (devTicks < 0) return;                              // finished or abandoned
-      if (!playing || buffering || osdVisible()) {
-        if (devStep) { devSetStep(0, ''); devTicks = -1; SM.devlog.log('dev.test', 'stopped (controls or pause)'); }
-        return;
-      }
-      var n = ++devTicks;
-      if (n === 50) devSetStep(1, 'Test 1 of 2: picture moved to top-left');
-      else if (n === 100) devSetStep(2, 'Test 2 of 2: video element moved to a corner');
-      else if (n === 150) devSetStep(3, 'Tests done');
-      else if (n === 165) { devSetStep(0, ''); devTicks = -1; }
-    }
 
     function setPlayingClass(on) {
       document.documentElement.classList.toggle('playing', on);
