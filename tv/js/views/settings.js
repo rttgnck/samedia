@@ -46,7 +46,7 @@
         list.appendChild(header('Profile'));
         list.appendChild(rowItem("Who's watching", S.get('profileName') + (S.get('profileKids') ? ' · Kids' : ''), function () {
           SM.router.reset('profiles', {});
-        }, 'Switch profile, add one, or turn kids mode on or off', 'profile'));
+        }, 'Switch profile. Profiles are managed in the Samedia admin page on your NAS', 'profile'));
         list.appendChild(rowItem('Hidden titles', '', function () { SM.router.push('hidden', {}); },
           'Hold OK on a title and choose Hide to keep it out of this profile', 'hidden'));
       }

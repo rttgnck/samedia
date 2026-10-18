@@ -305,3 +305,50 @@ def test_preview_frame_endpoint(client, tmp_path):
     r = client.get("/api/v1/items/m1/frame", params={"t": 12, "w": 240})
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg" and len(r.content) > 500
     assert client.get("/api/v1/items/nope/frame", params={"t": 1}).status_code == 404
+
+
+def test_tv_profile_restrictions(client):
+    add_movie("m1", "Toy Story", "/media/toy.mkv", cert="G")
+    add_movie("m2", "Alien", "/media/alien.mkv", cert="R")
+    kids = client.post("/api/v1/profiles", json={"name": "Kids", "kids": True}).json()
+    tv = {"X-Samedia-Device": "TV-KIDSROOM", "X-Samedia-Device-Name": "QN43LS03B"}
+    # first contact registers the TV, unrestricted
+    assert len(client.get("/api/v1/profiles", headers=tv).json()["profiles"]) == 2
+    dev = client.get("/api/v1/admin/devices").json()["devices"][0]
+    assert dev["id"] == "TV-KIDSROOM" and dev["name"] == "QN43LS03B" and dev["profiles"] is None
+    # restrict the kids' room TV to the Kids profile
+    r = client.put("/api/v1/admin/devices/TV-KIDSROOM", json={"profiles": [kids["id"]], "name": "Kids room"})
+    assert r.json()["profiles"] == [kids["id"]] and r.json()["name"] == "Kids room"
+    assert [p["name"] for p in client.get("/api/v1/profiles", headers=tv).json()["profiles"]] == ["Kids"]
+    # asking for the main profile from that TV is refused: it browses as Kids
+    movies = client.get("/api/v1/movies", headers={**tv, "X-Samedia-Profile": "default"}).json()["items"]
+    assert [m["title"] for m in movies] == ["Toy Story"]
+    # the admin page still sees every profile; other TVs are unaffected
+    assert len(client.get("/api/v1/profiles", params={"all": True}).json()["profiles"]) == 2
+    assert len(client.get("/api/v1/movies", headers={"X-Samedia-Device": "LIVINGROOM"}).json()["items"]) == 2
+    # an empty selection isn't allowed; "all" resets the restriction
+    assert client.put("/api/v1/admin/devices/TV-KIDSROOM", json={"profiles": []}).status_code == 400
+    assert client.put("/api/v1/admin/devices/TV-KIDSROOM", json={"all_profiles": True}).json()["profiles"] is None
+
+
+def test_new_tvs_get_the_default_profiles(client):
+    kids = client.post("/api/v1/profiles", json={"name": "Kids", "kids": True}).json()
+    client.put("/api/v1/admin/new-device-profiles", json={"profiles": [kids["id"]]})
+    names = [p["name"] for p in client.get("/api/v1/profiles", headers={"X-Samedia-Device": "NEW-TV"}).json()["profiles"]]
+    assert names == ["Kids"]
+    # a profile that is the only one new TVs (or some TV) get can't be deleted: they'd fall open to all
+    r = client.delete(f"/api/v1/profiles/{kids['id']}")
+    assert r.status_code == 400 and "the TV" in r.json()["detail"]
+    assert client.get("/api/v1/admin/devices").json()["devices"][0]["profiles"] == [kids["id"]]
+    client.put("/api/v1/admin/devices/NEW-TV", json={"profiles": [kids["id"], "default"]})
+    r = client.delete(f"/api/v1/profiles/{kids['id']}")
+    assert r.status_code == 400 and "New TVs" in r.json()["detail"]
+    # once nothing depends on it alone, deleting just removes it from the TV's list
+    client.put("/api/v1/admin/new-device-profiles", json={"all_profiles": True})
+    assert client.delete(f"/api/v1/profiles/{kids['id']}").status_code == 200
+    assert client.get("/api/v1/admin/devices").json()["devices"][0]["profiles"] == ["default"]
+
+
+def test_bad_device_ids_are_ignored(client):
+    assert len(client.get("/api/v1/profiles", headers={"X-Samedia-Device": "x" * 200}).json()["profiles"]) == 1
+    assert client.get("/api/v1/admin/devices").json()["devices"] == []

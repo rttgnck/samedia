@@ -6,6 +6,40 @@
 
   function base() { return (S.get('server') || '').replace(/\/+$/, ''); }
 
+  /** Stable id for this TV (the server uses it to decide which profiles this TV offers). */
+  /** 64-bit FNV-1a as hex: turns the TV's hardware id into a stable id that doesn't reveal it. */
+  function fnv64(str) {
+    var h = [0x84222325, 0xcbf29ce4], i, j;
+    for (i = 0; i < str.length; i++) {
+      h[0] ^= str.charCodeAt(i) & 0xff;
+      // multiply by the FNV prime 2^40 + 0x1b3, in 16-bit pieces
+      var a = [h[0] & 0xffff, h[0] >>> 16, h[1] & 0xffff, h[1] >>> 16], r = [0, 0, 0, 0];
+      for (j = 0; j < 4; j++) {
+        r[j] += a[j] * 0x1b3;
+        if (j + 2 < 4) r[j + 2] += a[j] << 8;
+      }
+      for (j = 0; j < 3; j++) { r[j + 1] += r[j] >>> 16; r[j] &= 0xffff; }
+      r[3] &= 0xffff;
+      h = [(r[1] << 16 | r[0]) >>> 0, (r[3] << 16 | r[2]) >>> 0];
+    }
+    return ('0000000' + h[1].toString(16)).slice(-8) + ('0000000' + h[0].toString(16)).slice(-8);
+  }
+
+  function deviceId() {
+    var id = S.get('deviceId');
+    if (id) return id;
+    var hw = '';
+    try { hw = webapis.productinfo.getDuid() || ''; } catch (e) { /* not a Samsung TV */ }
+    // Hashed so the server never stores the TV's hardware id; stable across reinstalls
+    id = hw ? 'tv-' + fnv64('samedia:' + hw) : 'tv-' + SM.util.uid() + SM.util.uid();
+    S.set('deviceId', id);
+    return id;
+  }
+
+  var deviceName = (function () {
+    try { return 'Samsung ' + webapis.productinfo.getRealModel(); } catch (e) { return SM.util.isTizen ? 'Samsung TV' : 'Browser'; }
+  })();
+
   function withToken(url) {
     var t = S.get('token');
     if (!t) return url;
@@ -24,6 +58,8 @@
     var token = S.get('token');
     if (token) headers.Authorization = 'Bearer ' + token;
     if (S.get('profileId')) headers['X-Samedia-Profile'] = S.get('profileId');
+    headers['X-Samedia-Device'] = deviceId();
+    headers['X-Samedia-Device-Name'] = encodeURIComponent(deviceName);
     var url = (opts.base !== undefined ? opts.base : base()) + path;
     return fetch(url, {
       method: method, headers: headers, signal: ctrl ? ctrl.signal : undefined,
@@ -137,9 +173,6 @@
     home: function () { return request('GET', '/api/v1/home'); },
     collection: function (id) { return request('GET', '/api/v1/collections/' + id); },
     profiles: function () { return request('GET', '/api/v1/profiles'); },
-    createProfile: function (p) { return request('POST', '/api/v1/profiles', p); },
-    updateProfile: function (id, p) { return request('PUT', '/api/v1/profiles/' + id, p); },
-    deleteProfile: function (id) { return request('DELETE', '/api/v1/profiles/' + id); },
     hidden: function () { return request('GET', '/api/v1/hidden'); },
     bookmarks: function (itemId) { return request('GET', '/api/v1/items/' + itemId + '/bookmarks'); },
     addBookmark: function (itemId, position) { return request('POST', '/api/v1/items/' + itemId + '/bookmarks', { position: position }); },

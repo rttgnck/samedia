@@ -29,6 +29,15 @@
   .muted { color: var(--dim); font-size: 13px; word-break: break-all; }
   .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; } .check input { width: auto; }
   #login { display: none; }
+  .person, .tv { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .person:last-child, .tv:last-child { border-bottom: 0; }
+  .dot { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; }
+  .person input[type=text], .tv input[type=text] { flex: 1; min-width: 160px; }
+  .inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-weight: 500; }
+  .inline input { width: auto; }
+  .tv-profiles { display: flex; gap: 14px; flex-wrap: wrap; width: 100%; padding-left: 36px; }
+  select { background: var(--input); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font: inherit; }
+  button.small { padding: 7px 12px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -65,6 +74,29 @@
       <div id="roots"></div>
       <label>Folders to scan <small>— one per line, as seen inside the container</small></label>
       <textarea id="media_roots"></textarea>
+    </section>
+
+    <section class="card">
+      <h2>Profiles</h2>
+      <p class="muted">Who's watching. Each profile has its own watch history, bookmarks and hidden titles.
+        Kids profiles only show titles rated G, PG, TV-Y, TV-Y7, TV-G or TV-PG.</p>
+      <div id="people"></div>
+      <div class="row" style="margin-top:12px">
+        <input id="newPerson" type="text" placeholder="New profile name" style="max-width:260px">
+        <label class="inline"><input type="checkbox" id="newPersonKids"> Kids</label>
+        <button class="small" id="addPerson">Add profile</button>
+        <span class="muted" id="peopleText"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>TVs</h2>
+      <p class="muted">Every TV that has connected. Choose which profiles each TV offers — e.g. only Kids in a child's room.</p>
+      <div id="tvs"></div>
+      <div class="row" style="margin-top:12px">
+        <span class="muted">New TVs offer:</span>
+        <div id="newTvProfiles" class="row"></div>
+      </div>
     </section>
 
     <section class="card">
@@ -132,6 +164,113 @@ $("loginBtn").onclick = async () => {
   $("login").style.display = "none"; start();
 };
 
+// ── profiles & TVs ────────────────────────────────────────────────
+const COLORS = ["#5b8cff", "#ff6b6b", "#3ecf8e", "#ffb547", "#b46bff", "#33c3ff", "#ff7ac6", "#8a93a6"];
+let people = [];
+
+function el(tag, props = {}, kids = []) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "text") n.textContent = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (k === "style") Object.assign(n.style, v);
+    else if (v !== false && v !== null && v !== undefined) n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of [].concat(kids)) if (c) n.appendChild(c);
+  return n;
+}
+
+function note(id, text) { $(id).textContent = text; setTimeout(() => { if ($(id).textContent === text) $(id).textContent = ""; }, 3000); }
+
+function profileChecks(selected, onChange) {
+  // selected: null = all profiles
+  const wrap = el("div", { class: "row" });
+  const all = el("input", { type: "checkbox" });
+  all.checked = selected === null;
+  const boxes = people.map((p) => {
+    const b = el("input", { type: "checkbox" });
+    b.checked = selected === null || selected.includes(p.id);
+    b.disabled = selected === null;
+    b.dataset.id = p.id;
+    return b;
+  });
+  const emit = () => onChange(all.checked ? null : boxes.filter((b) => b.checked).map((b) => b.dataset.id));
+  all.addEventListener("change", () => { boxes.forEach((b) => { b.disabled = all.checked; b.checked = true; }); emit(); });
+  // A TV always offers at least one profile
+  boxes.forEach((b) => b.addEventListener("change", () => {
+    if (!boxes.some((x) => x.checked)) { b.checked = true; return; }
+    emit();
+  }));
+  wrap.appendChild(el("label", { class: "inline" }, [all, document.createTextNode("All profiles")]));
+  people.forEach((p, i) => wrap.appendChild(el("label", { class: "inline" }, [boxes[i], document.createTextNode(p.name), p.kids ? el("span", { class: "muted", text: " · kids" }) : null])));
+  return wrap;
+}
+
+async function saveDeviceProfiles(path, list) {
+  try {
+    await api(path, { method: "PUT", body: JSON.stringify(list === null ? { all_profiles: true } : { profiles: list }) });
+  } catch (e) { alert(e.message); }
+  loadPeople();
+}
+
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 90) return "online now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " days ago";
+}
+
+async function loadPeople() {
+  people = (await api("/api/v1/profiles?all=true")).profiles;
+  const box = $("people");
+  box.replaceChildren(...people.map((p) => {
+    const name = el("input", { type: "text", value: p.name, maxlength: 24 });
+    name.addEventListener("change", () => api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ name: name.value }) })
+      .then(() => { note("peopleText", "Saved"); loadPeople(); }, (e) => alert(e.message)));
+    const kids = el("input", { type: "checkbox" }); kids.checked = p.kids;
+    kids.addEventListener("change", () => api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ kids: kids.checked }) }).then(loadPeople));
+    const color = el("select", {}, COLORS.map((c) => el("option", { value: c, text: "●  " + c, style: { color: c } })));
+    color.value = COLORS.includes(p.color) ? p.color : COLORS[0];
+    color.addEventListener("change", () => api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ color: color.value }) }).then(loadPeople));
+    const del = el("button", { class: "ghost small", text: "Delete", disabled: people.length <= 1, onclick: async () => {
+      if (!confirm(`Delete ${p.name}? Its watch history, bookmarks and hidden titles are removed.`)) return;
+      try { await api("/api/v1/profiles/" + p.id, { method: "DELETE" }); } catch (e) { alert(e.message); }
+      loadPeople();
+    } });
+    return el("div", { class: "person" }, [el("span", { class: "dot", style: { background: p.color }, text: p.name.charAt(0).toUpperCase() }),
+      name, el("label", { class: "inline" }, [kids, document.createTextNode("Kids")]), color, del]);
+  }));
+
+  const d = await api("/api/v1/admin/devices");
+  const tvs = $("tvs");
+  if (!d.devices.length) tvs.replaceChildren(el("p", { class: "muted", text: "No TV has connected yet." }));
+  else tvs.replaceChildren(...d.devices.map((tv) => {
+    const name = el("input", { type: "text", value: tv.name, maxlength: 60 });
+    name.addEventListener("change", () => api("/api/v1/admin/devices/" + encodeURIComponent(tv.id), { method: "PUT", body: JSON.stringify({ name: name.value }) }).then(loadPeople));
+    const forget = el("button", { class: "ghost small", text: "Forget", onclick: async () => {
+      if (!confirm("Forget this TV? It reappears (with the default profiles) next time it connects.")) return;
+      await api("/api/v1/admin/devices/" + encodeURIComponent(tv.id), { method: "DELETE" }); loadPeople();
+    } });
+    return el("div", { class: "tv" }, [el("span", { class: "dot", style: { background: "var(--line)" }, text: "TV" }), name,
+      el("span", { class: "muted", text: (tv.model ? tv.model + " · " : "") + ago(tv.last_seen) }), forget,
+      el("div", { class: "tv-profiles" }, [profileChecks(tv.profiles, (list) => saveDeviceProfiles("/api/v1/admin/devices/" + encodeURIComponent(tv.id), list))])]);
+  }));
+  $("newTvProfiles").replaceChildren(profileChecks(d.new_device_profiles, (list) => saveDeviceProfiles("/api/v1/admin/new-device-profiles", list)));
+}
+
+$("addPerson").onclick = async () => {
+  const name = $("newPerson").value.trim();
+  if (!name) return;
+  const used = people.map((p) => p.color);
+  const color = COLORS.find((c) => !used.includes(c)) || COLORS[people.length % COLORS.length];
+  try {
+    await api("/api/v1/profiles", { method: "POST", body: JSON.stringify({ name, kids: $("newPersonKids").checked, color }) });
+    $("newPerson").value = ""; $("newPersonKids").checked = false; note("peopleText", "Added " + name);
+  } catch (e) { alert(e.message); }
+  loadPeople();
+};
+
 async function loadSettings() {
   const s = await api("/api/v1/admin/settings");
   $("server_name").value = s.server_name; $("pinSetting").value = s.pin; $("tmdb_key").value = s.tmdb_key;
@@ -179,7 +318,12 @@ $("saveBtn").onclick = async () => {
 };
 
 async function start() {
-  try { await loadSettings(); $("app").style.display = "block"; refresh(); setInterval(() => refresh().catch(() => {}), 2000); }
+  try {
+    await loadSettings(); $("app").style.display = "block"; refresh(); loadPeople();
+    setInterval(() => refresh().catch(() => {}), 2000);
+    // Keep "last seen" fresh, but don't redraw while someone is typing
+    setInterval(() => { if (!document.activeElement || document.activeElement.tagName !== "INPUT") loadPeople().catch(() => {}); }, 20000);
+  }
   catch (e) { if (e.message !== "auth") alert(e.message); }
 }
 start();

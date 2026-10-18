@@ -5,8 +5,10 @@ import hashlib
 import hmac
 import logging
 import os
+import json
 import re
 import time
+import urllib.parse
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -65,7 +67,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices"]}
 
 
 @app.post("/api/v1/auth")
@@ -78,14 +80,45 @@ def pair(body: PairBody):
 api = Depends(require_auth)
 
 _PROFILE_ID = re.compile(r"^[a-z0-9]{1,32}$")
+_DEVICE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
+_DEVICE_SEEN_EVERY = 60  # seconds between last-seen updates
+
+
+def current_device(request: Request) -> dict | None:
+    """The TV making the request (X-Samedia-Device), registered on first contact."""
+    did = request.headers.get("x-samedia-device") or ""
+    if not _DEVICE_ID.match(did):
+        return None
+    now = time.time()
+    row = db.one("SELECT * FROM devices WHERE id=?", (did,))
+    model = urllib.parse.unquote(request.headers.get("x-samedia-device-name") or "")[:80] or None
+    if not row:
+        default = db.load_settings().get("new_device_profiles")   # None = all profiles
+        db.upsert("devices", {"id": did, "name": None, "model": model, "profiles": default,
+                              "created_at": now, "last_seen": now})
+        row = db.one("SELECT * FROM devices WHERE id=?", (did,))
+    elif now - row["last_seen"] > _DEVICE_SEEN_EVERY or (model and model != row["model"]):
+        db.execute("UPDATE devices SET last_seen=?, model=COALESCE(?, model) WHERE id=?", (now, model, did))
+    return row
+
+
+def allowed_profiles(device: dict | None) -> list[dict]:
+    """Profiles this TV may show (all when the TV is unknown or unrestricted)."""
+    rows = db.query("SELECT * FROM profiles ORDER BY created_at")
+    allowed = device and device.get("profiles")
+    if allowed is None or allowed is False:
+        return rows
+    picked = [r for r in rows if r["id"] in allowed]
+    return picked or rows[:1]
 
 
 def viewer(request: Request, profile: str | None = Query(None)) -> library.Viewer:
-    """The profile the TV is browsing as (X-Samedia-Profile header); unknown -> the default profile."""
+    """The profile the TV is browsing as (X-Samedia-Profile header), limited to the profiles
+    this TV may show; anything else falls back to the TV's first allowed profile."""
     pid = request.headers.get("x-samedia-profile") or profile or db.DEFAULT_PROFILE
-    row = db.one("SELECT id, kids FROM profiles WHERE id=?", (pid,)) if _PROFILE_ID.match(pid) else None
-    if not row:
-        row = db.one("SELECT id, kids FROM profiles ORDER BY created_at LIMIT 1")
+    options = allowed_profiles(current_device(request))
+    row = next((p for p in options if p["id"] == pid), None) if _PROFILE_ID.match(pid) else None
+    row = row or options[0]
     return library.Viewer(profile_id=row["id"], kids=bool(row["kids"]))
 
 
@@ -166,8 +199,10 @@ def _profile_out(r: dict) -> dict:
 
 
 @app.get("/api/v1/profiles", dependencies=[api])
-def list_profiles():
-    return {"profiles": [_profile_out(r) for r in db.query("SELECT * FROM profiles ORDER BY created_at")]}
+def list_profiles(request: Request, all: bool = False):
+    """Profiles for this TV (all=true: every profile, for the admin page)."""
+    rows = db.query("SELECT * FROM profiles ORDER BY created_at") if all else allowed_profiles(current_device(request))
+    return {"profiles": [_profile_out(r) for r in rows]}
 
 
 def _clean_profile(body: ProfileBody) -> dict:
@@ -215,10 +250,79 @@ def delete_profile(profile_id: str):
         raise HTTPException(404, "Profile not found")
     if db.one("SELECT COUNT(*) AS n FROM profiles")["n"] <= 1:
         raise HTTPException(400, "The last profile can't be deleted")
+    # Never let a restricted TV (e.g. a child's room with only Kids) fall open to every profile
+    for d in db.query("SELECT * FROM devices WHERE profiles IS NOT NULL"):
+        if d["profiles"] == [profile_id]:
+            raise HTTPException(400, f"It's the only profile on the TV \"{_device_out(d)['name']}\" — "
+                                     "pick another profile for that TV first")
+    if db.load_settings().get("new_device_profiles") == [profile_id]:
+        raise HTTPException(400, "It's the only profile new TVs get — change \"New TVs offer\" first")
     db.execute("DELETE FROM progress WHERE profile_id=?", (profile_id,))
     db.execute("DELETE FROM hidden WHERE profile_id=?", (profile_id,))
+    db.execute("DELETE FROM bookmarks WHERE profile_id=?", (profile_id,))
     db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
+    # Drop it from TVs' allowed lists (none of them is left empty: checked above)
+    for d in db.query("SELECT id, profiles FROM devices WHERE profiles IS NOT NULL"):
+        if profile_id in d["profiles"]:
+            rest = [p for p in d["profiles"] if p != profile_id]
+            db.execute("UPDATE devices SET profiles=? WHERE id=?", (json.dumps(rest), d["id"]))
+    default = db.load_settings().get("new_device_profiles")
+    if default and profile_id in default:
+        db.save_setting("new_device_profiles", [p for p in default if p != profile_id])
     return {"ok": True}
+
+
+# ── TVs (admin) ─────────────────────────────────────────────────────
+
+def _device_out(r: dict) -> dict:
+    return {"id": r["id"], "name": r.get("name") or r.get("model") or "TV", "custom_name": r.get("name"),
+            "model": r.get("model"), "profiles": r.get("profiles"), "last_seen": r["last_seen"]}
+
+
+class DeviceBody(BaseModel):
+    name: str | None = None
+    profiles: list[str] | None = None     # None = all profiles
+    all_profiles: bool | None = None       # explicit "all" (since None also means "not sent")
+
+
+def _valid_profile_list(ids: list[str]) -> list[str]:
+    known = {r["id"] for r in db.query("SELECT id FROM profiles")}
+    ids = [i for i in dict.fromkeys(ids) if i in known]
+    if not ids:
+        raise HTTPException(400, "Pick at least one profile (or all)")
+    return ids
+
+
+@app.get("/api/v1/admin/devices", dependencies=[api])
+def list_devices():
+    return {"devices": [_device_out(r) for r in db.query("SELECT * FROM devices ORDER BY last_seen DESC")],
+            "new_device_profiles": db.load_settings().get("new_device_profiles")}
+
+
+@app.put("/api/v1/admin/devices/{device_id}", dependencies=[api])
+def update_device(device_id: str, body: DeviceBody):
+    if not db.one("SELECT id FROM devices WHERE id=?", (device_id,)):
+        raise HTTPException(404, "TV not found")
+    if body.name is not None:
+        db.execute("UPDATE devices SET name=? WHERE id=?", (body.name.strip()[:60] or None, device_id))
+    if body.all_profiles:
+        db.execute("UPDATE devices SET profiles=NULL WHERE id=?", (device_id,))
+    elif body.profiles is not None:
+        db.execute("UPDATE devices SET profiles=? WHERE id=?", (json.dumps(_valid_profile_list(body.profiles)), device_id))
+    return _device_out(db.one("SELECT * FROM devices WHERE id=?", (device_id,)))
+
+
+@app.delete("/api/v1/admin/devices/{device_id}", dependencies=[api])
+def forget_device(device_id: str):
+    db.execute("DELETE FROM devices WHERE id=?", (device_id,))
+    return {"ok": True}
+
+
+@app.put("/api/v1/admin/new-device-profiles", dependencies=[api])
+def set_new_device_profiles(body: DeviceBody):
+    value = None if body.all_profiles or body.profiles is None else _valid_profile_list(body.profiles)
+    db.save_setting("new_device_profiles", value)
+    return {"new_device_profiles": value}
 
 
 # ── bookmarks ───────────────────────────────────────────────────────

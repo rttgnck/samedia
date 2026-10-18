@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 """
 
-JSON_COLUMNS = {"genres", "media", "sidecar_subs", "cast_members", "collection_hint"}
+JSON_COLUMNS = {"genres", "media", "sidecar_subs", "cast_members", "collection_hint", "profiles"}
 
 DEFAULT_PROFILE = "default"
 
@@ -150,7 +150,20 @@ def _migrate_2(conn: sqlite3.Connection) -> None:
         conn.execute(stmt)
 
 
-MIGRATIONS = [_migrate_1, _migrate_2]
+def _migrate_3(conn: sqlite3.Connection) -> None:
+    """TVs that connect, and which profiles each may show (NULL = all)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS devices (
+            id TEXT PRIMARY KEY,
+            name TEXT,                 -- set in the admin page
+            model TEXT,                -- reported by the TV
+            profiles TEXT,             -- JSON list of profile ids, NULL = all profiles
+            created_at REAL NOT NULL,
+            last_seen REAL NOT NULL
+        )""")
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
