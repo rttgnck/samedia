@@ -12,7 +12,7 @@
 // (~/.config/samedia/updater.json), never from the repo.
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, createWriteStream } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, createWriteStream } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +34,8 @@ export function loadConfig() {
 
 export function saveConfig(cfg) {
   mkdirSync(dirname(CONFIG_FILE), { recursive: true });
-  writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + "\n");
+  writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 });
+  chmodSync(CONFIG_FILE, 0o600);          // it can hold a nasOS login token: yours only
 }
 
 function git(...args) {

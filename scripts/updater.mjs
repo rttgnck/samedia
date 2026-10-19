@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 // Samedia updater: every screen that runs Samedia, what version it has, and one keypress to
-// put the latest build (made on the spot from this checkout) on any of them.
+// put the latest build (made on the spot from this checkout) on any of them. The NAS too: the
+// Samedia server app (through the nasOS App Store) and nasOS itself (an OTA package built from
+// the nasOS checkout next to this one, when the NAS runs something else).
 //
 //   npm run updater                    pick screens from the list
 //   npm run updater -- --list          just show them
 //   npm run updater -- --all --yes     update everything that's reachable and not playing
 //   npm run updater -- --only "Living room,Kitchen TV" --yes
 //   options: --launch (open the app after installing), --server http://host:8097,
-//            --tv-devlog http://<this mac>:8199/log (diagnostic TV build)
+//            --tv-devlog http://<this mac>:8199/log (diagnostic TV build),
+//            --nasos http://host:8080 (nasOS's address, if not the server's host)
+//   NASOS_REPO=<path> points at the nasOS checkout (default: ../nasOS)
 //
 // Screens come from the Samedia server (every app registers there, with its version) and from
 // what this Mac can reach: Android phones and Google TVs over adb (Wireless debugging), iPhones
@@ -20,11 +24,14 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import readline from "node:readline";
 import { BUILDERS, CONFIG_FILE, TOOL_PATH, appleTeam, buildInfo, loadConfig, saveConfig } from "./release.mjs";
+import * as nas from "./nasos.mjs";
 
 const PKG = "io.samedia.player";
 const TIZEN_APP = "SamediaTV0.Samedia";
-const KIND = { tv: "Samsung TV", googletv: "Google TV", android: "Android", ios: "iPhone/iPad" };
-const BUILD_FOR = { tv: "tv", googletv: "android", android: "android", ios: "ios" };
+const KIND = { tv: "Samsung TV", googletv: "Google TV", android: "Android", ios: "iPhone/iPad",
+  server: "NAS app", nasos: "NAS system" };
+const BUILD_FOR = { tv: "tv", googletv: "android", android: "android", ios: "ios", nasos: "nasos" };
+const NAS = new Set(["server", "nasos"]);
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -66,6 +73,28 @@ const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 function ask(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => rl.question(question, (a) => { rl.close(); resolve(a.trim()); }));
+}
+
+/** Like ask(), without showing what's typed. */
+function askHidden(question) {
+  return new Promise((resolve) => {
+    process.stdout.write(question);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    let typed = "";
+    const onData = (data) => {
+      for (const ch of String(data)) {
+        if (ch === "\u0003") { process.stdin.setRawMode(false); process.stdout.write("\n"); process.exit(130); }
+        if (ch === "\r" || ch === "\n") {
+          process.stdin.setRawMode(false); process.stdin.pause(); process.stdin.off("data", onData);
+          process.stdout.write("\n");
+          return resolve(typed);
+        }
+        typed = ch === "\u007f" || ch === "\b" ? typed.slice(0, -1) : typed + ch;
+      }
+    };
+    process.stdin.on("data", onData);
+  });
 }
 
 /** "0.9.0+38.1" → [0, 9, 0, 38, 1] for comparing. */
@@ -198,6 +227,60 @@ async function tvTargets(addresses) {
   return out;
 }
 
+// ── the NAS ──
+
+/** The Samedia server app and nasOS itself, as two more things to update. */
+async function nasTargets(cfg, server, info, busy) {
+  const url = option("--nasos") || nas.nasosUrl(cfg, server && server.url) || "http://nasos.local:8080";
+  const health = await nas.health(url);
+  const out = [];
+  const offline = `nasOS not answering at ${url}: pass --nasos <address>`;
+  if (server) {
+    const have = server.info.version;
+    out.push({ kind: "server", name: "Samedia server", installed: have, current: !older(have, info.version),
+      offer: `update available (${info.version}, from the App Store)`, url: server.url, latest: info.version,
+      nas: url, reachable: !!health, why: health ? null : offline, playing: busy, stops: "updating restarts the server" });
+  }
+  if (!health) return out;
+  const repo = nas.nasosRepo(cfg);
+  const have = health.version || null;
+  if (!repo) {
+    out.push({ kind: "nasos", name: "nasOS", installed: have, reachable: false,
+      why: "no nasOS checkout to build from: set NASOS_REPO=<path>" });
+    return out;
+  }
+  const fp = nas.fingerprint(repo);
+  const co = nas.checkoutState(repo);
+  out.push({ kind: "nasos", name: "nasOS", installed: have, shown: have && have.replace(/-g[0-9a-f]{6}$/, ""),
+    current: nas.inSync(have, fp), repo, fp, checkout: co, nas: url, reachable: true, playing: busy,
+    stops: "updating reboots the NAS",
+    offer: `update available (${co.branch}${co.changed ? `, ${co.changed} uncommitted files` : ""})` });
+  return out;
+}
+
+/** A nasOS login for updating the NAS: the saved token, else asked for once (only the token is kept). */
+async function nasToken(cfg, url) {
+  for (const token of [process.env.NASOS_TOKEN, cfg.nasos && cfg.nasos.token]) {
+    if (token && await nas.tokenWorks(url, token)) return token;
+  }
+  if (!process.stdin.isTTY) throw new Error("needs a nasOS login: run the updater in a terminal once");
+  console.log(`Updating the NAS needs your nasOS login. It's asked once: the password isn't kept, only a login token, in ${CONFIG_FILE}.`);
+  for (let tries = 0; tries < 3; tries++) {
+    const user = await ask("nasOS user: ");
+    if (!user) break;
+    const password = await askHidden("Password: ");
+    try {
+      const token = await nas.login(url, user, password);
+      cfg.nasos = { ...(cfg.nasos || {}), token };
+      saveConfig(cfg);
+      return token;
+    } catch (e) {
+      console.log(c.red(e.message));
+    }
+  }
+  throw new Error("no nasOS login");
+}
+
 // ── putting it together ──
 
 async function discover(cfg, server) {
@@ -243,12 +326,17 @@ async function discover(cfg, server) {
   return targets.sort((a, b) => (b.reachable - a.reachable) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
 }
 
+/** Up to date: screens by version, the NAS by what its target worked out. */
+function isCurrent(t, latest) {
+  return t.current !== undefined ? t.current : !!t.installed && !older(t.installed, latest);
+}
+
 function describe(t, latest) {
-  const have = t.installed || (t.reachable ? "not installed" : "?");
+  const have = t.shown || t.installed || (t.reachable ? "not installed" : "?");
   const state = !t.reachable ? c.red(t.why || "not reachable")
-    : t.playing ? c.yellow(`▶ playing ${t.playing} (updating stops it)`)
+    : t.playing ? c.yellow(`▶ playing ${t.playing} (${t.stops || "updating stops it"})`)
     : !t.installed ? c.cyan("ready")
-    : older(t.installed, latest) ? c.cyan("update available") : c.green("up to date");
+    : !isCurrent(t, latest) ? c.cyan(t.offer || "update available") : c.green("up to date");
   return `${t.name.padEnd(18).slice(0, 18)} ${KIND[t.kind].padEnd(11)} ${String(have).padEnd(14)} ${state}`;
 }
 
@@ -290,8 +378,22 @@ function pick(targets, latest, initial) {
 
 // ── installing ──
 
-async function install(t, artifact) {
+async function install(t, artifact, token, step) {
   const launch = flag("--launch");
+  if (t.kind === "server") {
+    await nas.updateApp(t.nas, token, "samedia");
+    for (const until = Date.now() + 180000; Date.now() < until;) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const now = await getJson(`${t.url}/api/v1/info`);
+      if (!now || !now.version) continue;
+      if (older(now.version, t.latest)) {
+        throw new Error(`it still runs ${now.version}: the published image is older than ${t.latest}; push to main and let CI build it`);
+      }
+      return now.version;
+    }
+    throw new Error("the server didn't come back within 3 minutes");
+  }
+  if (t.kind === "nasos") return nas.installOta(t.nas, token, artifact.file, artifact.version, step);
   if (t.via?.adb) {
     const r = await sh("adb", ["-s", t.via.adb, "install", "-r", artifact], 300000);
     if (!r.ok || !/Success/.test(r.out)) throw new Error((r.out + r.err).trim().split("\n").pop());
@@ -326,18 +428,23 @@ async function main() {
   const server = await findServer(cfg);
   if (server && server.url !== cfg.server) cfg.server = server.url;
 
-  const targets = await discover(cfg, server);
+  const screens = await discover(cfg, server);
   // remember Samsung TVs, which can't be found by asking around
-  cfg.tvs = [...new Set([...(cfg.tvs || []), ...targets.filter((t) => t.kind === "tv" && t.address).map((t) => t.address)])];
+  cfg.tvs = [...new Set([...(cfg.tvs || []), ...screens.filter((t) => t.kind === "tv" && t.address).map((t) => t.address)])];
   saveConfig(cfg);
+  // updating the NAS interrupts whatever plays anywhere
+  const playing = screens.filter((t) => t.playing);
+  const busy = playing.length === 1 ? `${playing[0].playing} on ${playing[0].name}`
+    : playing.length ? `on ${playing.length} screens` : null;
+  const targets = [...(await nasTargets(cfg, server, info, busy)), ...screens];
 
   console.log(`\n${c.bold("Samedia updater")}  latest build ${c.bold(info.full)}`);
-  if (server) {
-    const sv = server.info.version;
-    console.log(`Server ${server.info.name} (${server.url}) runs ${sv}` +
-      (older(sv, info.version) ? c.yellow(`: update Samedia in the nasOS App Store to get ${info.version}`) : ""));
-  } else {
-    console.log(c.yellow("No Samedia server found: showing only the screens this Mac can reach."));
+  if (server) console.log(`Server ${server.info.name} (${server.url}) runs ${server.info.version}`);
+  else console.log(c.yellow("No Samedia server found: showing only the screens this Mac can reach."));
+  const os = targets.find((t) => t.kind === "nasos" && t.checkout);
+  if (os) {
+    console.log(`nasOS on the NAS runs ${os.installed}; the checkout (${os.checkout.branch} @ ${os.checkout.commit}` +
+      `${os.checkout.changed ? ` + ${os.checkout.changed} uncommitted files` : ""}) would build ${os.fp}`);
   }
   if (!targets.length) { console.log("\nNo screens found."); return; }
   console.log("");
@@ -347,13 +454,14 @@ async function main() {
     return;
   }
 
-  const want = (t) => t.reachable && !t.playing && (!t.installed || older(t.installed, info.full));
+  const want = (t) => t.reachable && !t.playing && !isCurrent(t, info.full);
   let chosen;
   if (option("--only")) {
     const names = option("--only").split(",").map(norm);
     chosen = targets.filter((t) => t.reachable && names.includes(norm(t.name)));
   } else if (flag("--all")) {
-    chosen = targets.filter((t) => t.reachable && !t.playing);
+    // every screen (a fresh install), but the NAS only when it's behind
+    chosen = targets.filter((t) => t.reachable && !t.playing && (!NAS.has(t.kind) || want(t)));
   } else if (process.stdin.isTTY) {
     chosen = await pick(targets, info.full, targets.map((t, i) => (want(t) ? i : -1)).filter((i) => i >= 0));
     if (!chosen) return;
@@ -380,13 +488,31 @@ async function main() {
     }
   }
 
+  // the NAS needs a login: asked now, not after the builds
+  let token = null;
+  const nasChosen = chosen.find((t) => NAS.has(t.kind));
+  if (nasChosen) {
+    try {
+      token = await nasToken(cfg, nasChosen.nas);
+    } catch (e) {
+      console.log(c.yellow(`Leaving the NAS alone: ${e.message}`));
+      chosen = chosen.filter((t) => !NAS.has(t.kind));
+    }
+  }
+  // screens first; the NAS last (the server restarts, nasOS reboots)
+  const order = (t) => (t.kind === "nasos" ? 2 : t.kind === "server" ? 1 : 0);
+  chosen.sort((a, b) => order(a) - order(b));
+
   // one build per platform, then install
   const builds = {};
-  for (const platform of [...new Set(chosen.map((t) => BUILD_FOR[t.kind]))]) {
+  for (const platform of [...new Set(chosen.map((t) => BUILD_FOR[t.kind]).filter(Boolean))]) {
     const started = Date.now();
-    process.stdout.write(`Building ${platform} ${info.full}… `);
+    const os = platform === "nasos" && chosen.find((t) => t.kind === "nasos");
+    const version = os ? nas.otaVersion(os.fp) : info.full;
+    process.stdout.write(`Building ${os ? "nasOS" : platform} ${version}… `);
     try {
-      builds[platform] = await BUILDERS[platform](info, { devlog: option("--tv-devlog") });
+      builds[platform] = os ? { file: await nas.buildOta(os.repo, version), version }
+        : await BUILDERS[platform](info, { devlog: option("--tv-devlog") });
       console.log(c.green(`done (${Math.round((Date.now() - started) / 1000)}s)`));
     } catch (e) {
       console.log(c.red("failed"));
@@ -395,14 +521,19 @@ async function main() {
   }
   let failed = 0;
   for (const t of chosen) {
-    const artifact = builds[BUILD_FOR[t.kind]];
-    process.stdout.write(`Installing on ${t.name}… `);
-    if (!artifact) { console.log(c.red("skipped (no build)")); failed++; continue; }
+    const platform = BUILD_FOR[t.kind];
+    const artifact = platform && builds[platform];
+    process.stdout.write(`${NAS.has(t.kind) ? "Updating" : "Installing on"} ${t.name}… `);
+    if (platform && !artifact) { console.log(c.red("skipped (no build)")); failed++; continue; }
+    let stepped = false;
+    const step = (m) => { process.stdout.write(c.dim(`\n  · ${m}`)); stepped = true; };
     try {
-      const now = await install(t, artifact);
+      const now = await install(t, artifact, token, step);
+      if (stepped) process.stdout.write("\n  ");
       console.log(c.green(`done${now ? ` (${now})` : ""}`));
     } catch (e) {
       failed++;
+      if (stepped) process.stdout.write("\n  ");
       console.log(c.red(`failed: ${e.message}`));
     }
   }

@@ -31,7 +31,7 @@ audio** when needed, which a Pi 5 does easily. Video is passed through untouched
 | `server/` | Media server (Python/FastAPI + ffmpeg, Docker) | [server/README.md](server/README.md): config, API |
 | `ios/` | iPhone/iPad app (SwiftUI): browse, play, remote | `scripts/build-ios.sh` |
 | `android/` | Android app: on phones a remote that plays too (Compose, Media3); on Google TV the TV interface over the native player | `scripts/build-android.sh` |
-| `scripts/updater.mjs` | `npm run updater`: every screen running Samedia, its version, update any of them from this checkout | below |
+| `scripts/updater.mjs` | `npm run updater`: every screen running Samedia and the NAS, their versions, update any of them from this checkout | below |
 | `docs/NASOS_INTEGRATION_SPEC.md` | Spec for adding Samedia to the nasOS App Store | [spec](docs/NASOS_INTEGRATION_SPEC.md) |
 | `scripts/package-tv.sh` | Build, sign and install the TV app | |
 | `.github/workflows/server-image.yml` | Multi-arch image → `ghcr.io/rttgnck/samedia-server` | |
@@ -61,6 +61,15 @@ any with the arrow keys and space, press Enter: it builds what's needed and inst
 | Samsung TV | Developer Mode with this Mac as Host PC (found by scanning the network), Tizen Studio's `sdb`/`tizen` |
 | Android phone, Google TV | Developer options → Wireless debugging, paired with `adb pair` |
 | iPhone, iPad | Paired with Xcode; your Apple team id is asked once and kept in `~/.config/samedia/updater.json` |
+| Samedia server (NAS app) | Through the nasOS App Store: pulls the newest published image (CI builds it on every push to `main`) |
+| nasOS (NAS system) | An OTA package built from the nasOS checkout next to this one (`../nasOS`, or `NASOS_REPO=<path>`) when the NAS runs something else |
+
+The NAS rows need a nasOS login, asked once in the terminal: the password isn't kept, only a
+login token (in the same config file, readable by you only). nasOS builds made here carry a short
+fingerprint of the nasOS source in their version, which is how the updater tells whether the NAS
+is in sync; a build without one (made another way) counts as out of sync. The nasOS update
+reboots the NAS, so it goes last, and both NAS rows are left unticked while anything plays.
+nasOS's address is the Samedia server's host on port 8080, or `--nasos http://<host>:8080`.
 
 A screen that's playing something is left unticked. Other commands: `npm run updater -- --list`,
 `npm run build -- tv android ios` (release builds in `dist/release/`), `npm run version -- 1.0.0`.
