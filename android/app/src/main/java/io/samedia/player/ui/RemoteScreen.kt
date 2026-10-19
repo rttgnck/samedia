@@ -26,6 +26,9 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -45,6 +48,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -168,8 +172,11 @@ private fun RemotePanel(player: RemotePlayer, fetchedAt: Long, send: (JsonObject
     val art = remember { mutableStateMapOf<String, MediaItem>() }
     LaunchedEffect(now?.itemId) {
         val id = now?.itemId ?: return@LaunchedEffect
+        if (now.kind == "track") return@LaunchedEffect          // music says its own artwork
         if (id !in art) runCatching { model.api?.item(id)?.item }.getOrNull()?.let { art[id] = it }
     }
+    val nav = LocalNavigator.current
+    val music = now?.kind == "track"
     // Move the clock along between refreshes
     var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(now?.playing) {
@@ -187,6 +194,9 @@ private fun RemotePanel(player: RemotePlayer, fetchedAt: Long, send: (JsonObject
             Icon(player.symbol, null, tint = Palette.accent)
             Text(player.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 10.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (player.kind == "tv") {
+                TextButton(onClick = { nav.push(Route.Lock(player)) }) { Icon(Icons.Filled.Lock, null, Modifier.size(18.dp)); Text(" Lock…") }
+            }
             if (now != null) {
                 IconButton(onClick = { send(cmd("stop")) }) { Icon(Icons.Filled.Stop, "Stop", tint = Palette.dim) }
             }
@@ -194,8 +204,8 @@ private fun RemotePanel(player: RemotePlayer, fetchedAt: Long, send: (JsonObject
 
         if (now != null) {
             val item = art[now.itemId]
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(14.dp)).background(Palette.surface2)) {
-                AsyncImage(model.api?.art(item?.thumb ?: item?.backdrop ?: item?.poster, 960), null,
+            Box(Modifier.fillMaxWidth().aspectRatio(if (music) 1.6f else 16f / 9f).clip(RoundedCornerShape(14.dp)).background(Palette.surface2)) {
+                AsyncImage(model.api?.art(if (music) now.art else item?.scene ?: item?.thumb ?: item?.backdrop ?: item?.poster, 960), null,
                     contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.75f))))
                 Text(now.title ?: item?.fullTitle ?: "", color = Color.White, style = MaterialTheme.typography.titleMedium,
@@ -225,7 +235,8 @@ private fun RemotePanel(player: RemotePlayer, fetchedAt: Long, send: (JsonObject
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                RoundKey(Icons.Filled.Replay10, "Back 10 seconds", 56) { send(cmd("skip") { put("delta", -10) }) }
+                if (music) RoundKey(Icons.Filled.SkipPrevious, "Previous", 56) { send(cmd("previous")) }
+                else RoundKey(Icons.Filled.Replay10, "Back 10 seconds", 56) { send(cmd("skip") { put("delta", -10) }) }
                 FilledIconButton(
                     onClick = { send(cmd("toggle")) }, modifier = Modifier.size(76.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = Palette.accent),
@@ -233,7 +244,8 @@ private fun RemotePanel(player: RemotePlayer, fetchedAt: Long, send: (JsonObject
                     Icon(if (now.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (now.playing) "Pause" else "Play",
                         Modifier.size(40.dp), tint = Color.White)
                 }
-                RoundKey(Icons.Filled.Forward30, "Forward 30 seconds", 56) { send(cmd("skip") { put("delta", 30) }) }
+                if (music) RoundKey(Icons.Filled.SkipNext, "Next", 56) { send(cmd("next")) }
+                else RoundKey(Icons.Filled.Forward30, "Forward 30 seconds", 56) { send(cmd("skip") { put("delta", 30) }) }
             }
         } else {
             Text("Nothing playing. Choose a title and use Play on… to start it here.", color = Palette.dim)

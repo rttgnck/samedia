@@ -192,6 +192,7 @@ class PlayerActivity : ComponentActivity(), PlayerController {
 
     private fun open(item: MediaItem, start: Double?) {
         val api = model.api ?: return finish()
+        MusicController.pause()                     // one thing at a time
         openJob?.cancel()
         this.item = item
         decision = null

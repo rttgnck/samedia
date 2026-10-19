@@ -48,6 +48,9 @@ struct MediaItem: Decodable, Identifiable, Hashable {
     let poster: String?
     let backdrop: String?
     let thumb: String?
+    /// Title card: a scene other than the backdrop, and the title's logo.
+    let scene: String?
+    let logo: String?
     var position: Double?
     var watched: Bool
     let badges: [String]
@@ -64,7 +67,7 @@ struct MediaItem: Decodable, Identifiable, Hashable {
     let showTitle: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, title, year, duration, rating, plot, genres, poster, backdrop, thumb, position, watched,
+        case id, kind, title, year, duration, rating, plot, genres, poster, backdrop, thumb, scene, logo, position, watched,
              badges, certification, episode_count, unwatched, item_count, years, season, episode, show_id, show_title
     }
 
@@ -81,6 +84,8 @@ struct MediaItem: Decodable, Identifiable, Hashable {
         poster = try? c.decode(String.self, forKey: .poster)
         backdrop = try? c.decode(String.self, forKey: .backdrop)
         thumb = try? c.decode(String.self, forKey: .thumb)
+        scene = try? c.decode(String.self, forKey: .scene)
+        logo = try? c.decode(String.self, forKey: .logo)
         position = try? c.decode(Double.self, forKey: .position)
         watched = (try? c.decode(Bool.self, forKey: .watched)) ?? false
         badges = (try? c.decode([String].self, forKey: .badges)) ?? []

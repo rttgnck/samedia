@@ -29,11 +29,12 @@ struct RootView: View {
 /// The app's screens with the TV-style rail of soft icons floating over them (it never
 /// moves the content).
 struct MainView: View {
-    enum Section: CaseIterable { case home, movies, shows, search, remote }
+    enum Section: CaseIterable { case home, movies, shows, music, search, remote }
 
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @State private var section: Section = .home
+    @State private var nowPlaying = false
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -42,6 +43,7 @@ struct MainView: View {
                 case .home: HomeView()
                 case .movies: NavigationStack { LibraryView(kind: .movies) }
                 case .shows: NavigationStack { LibraryView(kind: .shows) }
+                case .music: MusicView()
                 case .search: NavigationStack { SearchView() }
                 case .remote: RemoteView()
                 }
@@ -49,6 +51,8 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             Rail(section: $section)
         }
+        .overlay(alignment: .bottom) { MiniPlayerBar(showing: $nowPlaying) }
+        .fullScreenCover(isPresented: $nowPlaying) { NowPlayingView() }
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 Text(toast).font(.callout.weight(.semibold)).padding(.horizontal, 18).padding(.vertical, 10)
@@ -74,6 +78,7 @@ struct Rail: View {
             icon(.home, "house.fill")
             icon(.movies, "film.fill")
             icon(.shows, "tv.fill")
+            icon(.music, "music.note")
             icon(.search, "magnifyingglass")
             if model.hasRemote { icon(.remote, "appletvremote.gen4.fill") }
             if let p = model.profile {

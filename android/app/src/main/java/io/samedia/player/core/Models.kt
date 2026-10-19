@@ -46,6 +46,9 @@ data class MediaItem(
     val poster: String? = null,
     val backdrop: String? = null,
     val thumb: String? = null,
+    /** Title card: a scene other than the backdrop, and the title's logo. */
+    val scene: String? = null,
+    val logo: String? = null,
     val position: Double? = null,
     val watched: Boolean = false,
     val badges: List<String> = emptyList(),
@@ -181,6 +184,8 @@ data class NowPlaying(
     val duration: Double? = null,
     val playing: Boolean = false,
     val kind: String? = null,
+    val art: String? = null,
+    val artist: String? = null,
 )
 
 /** Another Samedia screen that is on (TV, phone, tablet), with what it plays. */

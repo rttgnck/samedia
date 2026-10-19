@@ -46,9 +46,10 @@ struct DetailView: View {
 
     private var header: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: model.api?.art(current.backdrop ?? current.poster, width: 1920))
+            RemoteImage(url: model.api?.art(current.scene ?? current.backdrop ?? current.poster, width: 1920))
                 .frame(height: 460).frame(maxWidth: .infinity).clipped()
                 .overlay(LinearGradient(colors: [.clear, .black.opacity(0.5), .black], startPoint: .top, endPoint: .bottom))
+                .overlay(alignment: .topTrailing) { TitleLogo(path: current.logo) }
             HStack(alignment: .bottom, spacing: 26) {
                 PosterView(item: current, width: 500, showProgress: false)
                     .frame(width: 190, height: 285).shadow(radius: 20)
@@ -175,9 +176,10 @@ struct ShowView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 ZStack(alignment: .bottomLeading) {
-                    RemoteImage(url: model.api?.art(show.backdrop ?? show.poster, width: 1920))
+                    RemoteImage(url: model.api?.art(show.scene ?? show.backdrop ?? show.poster, width: 1920))
                         .frame(height: 360).frame(maxWidth: .infinity).clipped()
                         .overlay(LinearGradient(colors: [.clear, .black], startPoint: .center, endPoint: .bottom))
+                        .overlay(alignment: .topTrailing) { TitleLogo(path: show.logo) }
                     VStack(alignment: .leading, spacing: 8) {
                         Text(show.title).font(.system(size: 40, weight: .heavy))
                         Text(Format.meta(detail?.show ?? show)).foregroundStyle(.secondary)
@@ -260,6 +262,19 @@ struct CollectionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.refreshToken) {
             detail = try? await model.api?.get("/api/v1/collections/\(collection.id)", as: CollectionDetail.self)
+        }
+    }
+}
+
+/// A title's logo, faded over its scene (the title card).
+struct TitleLogo: View {
+    @Environment(AppModel.self) private var model
+    let path: String?
+    var body: some View {
+        if let path {
+            RemoteImage(url: model.api?.art(path, width: 800), contentMode: .fit)
+                .frame(maxWidth: 380, maxHeight: 150).opacity(0.85).shadow(color: .black.opacity(0.7), radius: 20)
+                .padding(.top, 40).padding(.trailing, 40)
         }
     }
 }

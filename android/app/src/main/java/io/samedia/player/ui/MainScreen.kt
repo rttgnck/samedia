@@ -2,10 +2,12 @@ package io.samedia.player.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.People
@@ -43,6 +45,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Filled.Home),
     Movies("Movies", Icons.Filled.Movie),
     Shows("TV", Icons.Filled.Tv),
+    Music("Music", Icons.Filled.LibraryMusic),
     Search("Search", Icons.Filled.Search),
 }
 
@@ -60,6 +63,8 @@ fun MainScreen() {
         Scaffold(
             containerColor = Palette.bg,
             bottomBar = {
+                Column {
+                if (stack.lastOrNull() != Route.NowPlaying) MiniPlayer()
                 NavigationBar(containerColor = Palette.surface) {
                     tabs.forEach { t ->
                         NavigationBarItem(
@@ -75,6 +80,7 @@ fun MainScreen() {
                         )
                     }
                 }
+                }
             },
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
@@ -86,6 +92,7 @@ fun MainScreen() {
                             Tab.Home -> HomeScreen()
                             Tab.Movies -> LibraryScreen("movies")
                             Tab.Shows -> LibraryScreen("shows")
+                            Tab.Music -> MusicScreen()
                             Tab.Search -> SearchScreen()
                         }
                     }
@@ -95,6 +102,11 @@ fun MainScreen() {
                             is Route.Item -> DetailScreen(top.item) { stack.removeAt(stack.lastIndex) }
                             is Route.Show -> ShowScreen(top.id) { stack.removeAt(stack.lastIndex) }
                             is Route.Collection -> CollectionScreen(top.id) { stack.removeAt(stack.lastIndex) }
+                            is Route.Album -> AlbumScreen(top.id) { stack.removeAt(stack.lastIndex) }
+                            is Route.Artist -> ArtistScreen(top.id, top.name) { stack.removeAt(stack.lastIndex) }
+                            is Route.SpotifyList -> SpotifyListScreen(top.id) { stack.removeAt(stack.lastIndex) }
+                            is Route.NowPlaying -> NowPlayingScreen { stack.removeAt(stack.lastIndex) }
+                            is Route.Lock -> LockScreen(top.player) { stack.removeAt(stack.lastIndex) }
                         }
                     }
                 }

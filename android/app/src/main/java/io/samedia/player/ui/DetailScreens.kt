@@ -64,13 +64,16 @@ import io.samedia.player.core.ItemDetail
 import io.samedia.player.core.MediaItem
 import io.samedia.player.core.ShowDetail
 
-/** The wide picture at the top of a details screen, with a back button over it. */
+/** The wide picture at the top of a details screen, with a back button over it: a title card (a
+ *  scene other than the poster, with the title's logo faded in) when there is one. */
 @Composable
-private fun Header(art: String?, onBack: () -> Unit) {
+private fun Header(art: String?, onBack: () -> Unit, logo: String? = null) {
     val model = LocalModel.current
     Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Palette.surface)) {
         AsyncImage(model.api?.art(art, 1280), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Palette.bg)))
+        if (logo != null) AsyncImage(model.api?.art(logo, 640), null, contentScale = ContentScale.Fit, alpha = 0.85f,
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 18.dp).fillMaxWidth(0.5f).aspectRatio(3f))
         IconButton(
             onClick = onBack,
             modifier = Modifier.statusBarsPadding().padding(8.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape),
@@ -100,7 +103,7 @@ fun DetailScreen(start: MediaItem, onBack: () -> Unit) {
     var watched by remember(item) { mutableStateOf(item.watched) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item { Header(item.backdrop ?: item.thumb, onBack) }
+        item { Header(item.scene ?: item.backdrop ?: item.thumb, onBack, item.logo) }
         item {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item.showTitle?.let {
@@ -201,7 +204,7 @@ fun ShowScreen(id: String, onBack: () -> Unit) {
     var watched by remember(show) { mutableStateOf(show.watched) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item { Header(show.backdrop, onBack) }
+        item { Header(show.scene ?: show.backdrop, onBack, show.logo) }
         item {
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(show.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)

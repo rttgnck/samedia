@@ -19,6 +19,30 @@
 - `npm run updater`: every screen, its version, update from the codebase; `npm run build`.
 - Apps report playback failures; the admin page lists them. Old codecs re-encoded in segments.
 
+## Done in 0.10 (music)
+
+### Music
+- Music from the media folders (tags, or Artist/Album/01 - Title), album art from the folder, the
+  files or the Cover Art Archive; AcoustID (optional key) names untagged files.
+- On the TV (Samsung and Google TV): albums in Cover Flow, artists, Now Playing with a late-90s
+  visualizer (classic spectrum, Milkdrop-style, oscilloscope, vinyl). On phone and iPad: the same
+  library, background playback with lock-screen controls, Now Playing with a visualizer.
+
+### Spotify
+- Connected once in the admin page; playlists, search, play on any Spotify device (Spotify
+  Connect, needs Premium), radio from a song. Spotify's own Autoplay carries on after that.
+
+### Locked screens
+- A screen locked (admin page, phone, iPad) to one profile and approved artists, albums and
+  Spotify playlists: no films, nothing else.
+
+### Admin page
+- Tabs: overview (what plays where), folders (with a folder browser and what each holds),
+  music, Spotify, screens (locks), profiles, playback problems, settings.
+
+### Title cards
+- Browsing backgrounds show a text-free scene of what's in focus (not its poster) with its logo.
+
 ## Next
 
 ### iPhone/iPad: 4K HEVC in MKV
@@ -29,23 +53,3 @@
 - OpenSubtitles needs an account for its key; the main no-account source (Podnapisi) is gone.
   Option: make foreign-parts subtitles on the server itself (speech recognition + translation,
   e.g. Whisper), run once per title in the background.
-
-## After that
-
-### Music
-- Local music library (artists, albums, tracks, album art, titles), ~80 GB to upload.
-- Playback on TV/iPad/Android with an old-school (90s/00s, Winamp/WMP era) visualizer.
-
-### Spotify
-- Connect the Samedia server to Spotify once (admin page); every app can then browse and play
-  the account's playlists, search, and keep playing after the queue ends (radio).
-- Playback through Spotify Connect (the official Spotify app on the TV/phone plays, Samedia
-  controls it): Spotify doesn't allow streaming its audio through other apps. Needs Premium.
-
-### Locked-down players
-- Lock a TV to one profile/account that can only play pre-approved music (and/or video),
-  set from the admin page and the Android app.
-
-### Admin page revamp
-- A fuller management console: players and their locks, profiles, libraries, music and
-  Spotify, approvals, server status.

@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.samedia.player.player.MusicController
 import io.samedia.player.player.PlayerActivity
 import io.samedia.player.player.PlayerHub
 import kotlinx.coroutines.MainScope
@@ -218,11 +219,49 @@ class AppModel(private val app: Application) {
         false
     }
 
+    /** Start Spotify on one of its devices (a playlist from a song, or songs). */
+    fun spotifyPlay(device: SpotifyDevice, contextUri: String? = null, uris: List<String>? = null, offset: Int? = null) = scope.launch {
+        val api = api ?: return@launch
+        try {
+            api.postIgnoringReply("/api/v1/spotify/play", buildJsonObject {
+                put("device_id", device.id)
+                contextUri?.let { put("context_uri", it) }
+                uris?.let { put("uris", kotlinx.serialization.json.JsonArray(it.map { u -> JsonPrimitive(u) })) }
+                offset?.let { put("offset", it) }
+            })
+            show("Playing on ${device.name}")
+        } catch (e: Exception) {
+            show(e.message ?: "Spotify didn't start")
+        }
+    }
+
+    /** Keep playing like this song: Spotify radio on a device. */
+    fun spotifyRadio(device: SpotifyDevice, seedUri: String) = scope.launch {
+        val api = api ?: return@launch
+        try {
+            api.postIgnoringReply("/api/v1/spotify/radio", buildJsonObject { put("device_id", device.id); put("seed", seedUri) })
+            show("Radio on ${device.name}")
+        } catch (e: Exception) {
+            show(e.message ?: "No radio for that one")
+        }
+    }
+
     /** A command from another device. */
     fun remoteCommand(msg: JsonObject) {
         val action = msg["action"]?.jsonPrimitive?.content ?: return
+        if (action == "play_music") {
+            val ids = (msg["tracks"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: return
+            val start = msg["index"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+            val api = api ?: return
+            scope.launch {
+                val list = runCatching { api.get<TrackList>("/api/v1/music/tracks?ids=" + ids.joinToString(",")).tracks }.getOrNull()
+                if (!list.isNullOrEmpty()) MusicController.play(app, api, list, start.coerceIn(0, list.size - 1))
+            }
+            return
+        }
         if (action != "play") {
-            PlayerHub.current?.command(action, msg)
+            val video = PlayerHub.current
+            if (video != null) video.command(action, msg) else MusicController.command(action, msg)
             return
         }
         val itemId = msg["item_id"]?.jsonPrimitive?.content ?: return

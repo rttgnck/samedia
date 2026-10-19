@@ -19,6 +19,7 @@ final class AppModel {
     /// Bumped when what the screens show may have changed (after playback, watched marks...).
     var refreshToken = 0
     let player = PlayerCoordinator()
+    let music = MusicPlayer()
     let remote = RemoteLink()
     /// A short message shown at the bottom of the screen.
     var toast: String?
@@ -198,10 +199,46 @@ final class AppModel {
         }
     }
 
+    /// Start Spotify on one of its devices (a playlist from a song, or songs).
+    func spotifyPlay(_ device: SpotifyDevice, contextURI: String? = nil, uris: [String]? = nil, offset: Int? = nil) {
+        guard let api else { return }
+        var body: [String: Any] = ["device_id": device.id]
+        if let contextURI { body["context_uri"] = contextURI }
+        if let uris { body["uris"] = uris }
+        if let offset { body["offset"] = offset }
+        Task {
+            do { try await api.postIgnoringReply("/api/v1/spotify/play", body); show("Playing on \(device.name)") }
+            catch { show(error.localizedDescription) }
+        }
+    }
+
+    /// Keep playing like this song: Spotify radio on a device.
+    func spotifyRadio(_ device: SpotifyDevice, seed: String) {
+        guard let api else { return }
+        Task {
+            do { try await api.postIgnoringReply("/api/v1/spotify/radio", ["device_id": device.id, "seed": seed]); show("Radio on \(device.name)") }
+            catch { show(error.localizedDescription) }
+        }
+    }
+
     /// A command from another device.
     func remoteCommand(_ msg: [String: Any]) {
         guard let action = msg["action"] as? String else { return }
-        guard action == "play" else { player.command(action, msg); return }
+        if action == "play_music" {
+            guard let ids = msg["tracks"] as? [String], let api else { return }
+            let start = msg["index"] as? Int ?? 0
+            Task {
+                guard let list = try? await api.get("/api/v1/music/tracks?ids=" + ids.joined(separator: ","), as: TrackList.self).tracks,
+                      !list.isEmpty else { return }
+                music.play(list, start: min(start, list.count - 1), model: self)
+            }
+            return
+        }
+        guard action == "play" else {
+            if !player.isActive, music.command(action, msg) { return }
+            player.command(action, msg)
+            return
+        }
         guard let itemID = msg["item_id"] as? String, let api else { return }
         let position = msg["position"] as? Double
         Task {

@@ -8,7 +8,10 @@ struct RemotePlayer: Decodable, Identifiable, Hashable {
         let position: Double?
         let duration: Double?
         let playing: Bool
-        enum CodingKeys: String, CodingKey { case item_id, title, position, duration, playing }
+        let kind: String?
+        let art: String?
+        let artist: String?
+        enum CodingKeys: String, CodingKey { case item_id, title, position, duration, playing, kind, art, artist }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             itemID = try c.decode(String.self, forKey: .item_id)
@@ -16,6 +19,9 @@ struct RemotePlayer: Decodable, Identifiable, Hashable {
             position = try? c.decode(Double.self, forKey: .position)
             duration = try? c.decode(Double.self, forKey: .duration)
             playing = (try? c.decode(Bool.self, forKey: .playing)) ?? false
+            kind = try? c.decode(String.self, forKey: .kind)
+            art = try? c.decode(String.self, forKey: .art)
+            artist = try? c.decode(String.self, forKey: .artist)
         }
     }
 

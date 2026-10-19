@@ -116,6 +116,11 @@ final class APIClient {
         _ = try await request(path, method: "POST", body: try JSONSerialization.data(withJSONObject: body))
     }
 
+    @MainActor
+    func send(_ path: String, method: String, _ body: [String: Any]?) async throws {
+        _ = try await request(path, method: method, body: try body.map { try JSONSerialization.data(withJSONObject: $0) })
+    }
+
     // What this device plays: MP4 family directly; anything else as HLS segments (H.264 only in
     // MPEG-TS on Apple players), which seek well.
     static let capabilities: [String: Any] = [

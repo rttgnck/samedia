@@ -64,6 +64,11 @@ sealed interface Route {
     data class Item(val item: MediaItem) : Route
     data class Show(val id: String) : Route
     data class Collection(val id: String) : Route
+    data class Album(val id: String) : Route
+    data class Artist(val id: String, val name: String) : Route
+    data class SpotifyList(val id: String) : Route
+    data object NowPlaying : Route
+    data class Lock(val player: RemotePlayer) : Route
 }
 
 fun routeFor(item: MediaItem): Route = when (item.kind) {

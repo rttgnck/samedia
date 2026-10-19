@@ -24,6 +24,7 @@ final class PlayerCoordinator: NSObject {
 
     func play(_ item: MediaItem, start: Double?, model: AppModel) {
         guard let api = model.api, player == nil else { return }
+        if model.music.playing { model.music.pause() }          // one thing at a time
         self.model = model
         self.item = item
         finished = false
@@ -40,6 +41,8 @@ final class PlayerCoordinator: NSObject {
     }
 
     /// A command from another device for what is playing here.
+    var isActive: Bool { player != nil }
+
     func command(_ action: String, _ msg: [String: Any]) {
         guard let player else { return }
         let offset = decision?.startOffset ?? 0

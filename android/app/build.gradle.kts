@@ -87,6 +87,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
     implementation("androidx.media3:media3-ui:1.8.0")
+    implementation("androidx.media3:media3-session:1.8.0")
     // Dolby Digital, DTS, TrueHD... decoded on the phone (most phones have no decoder for them)
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.8.0+1")
 

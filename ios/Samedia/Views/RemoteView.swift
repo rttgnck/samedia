@@ -93,6 +93,7 @@ struct PlayerCard: View {
     let player: RemotePlayer
     var changed: () async -> Void
     @State private var scrub: Double?
+    @State private var locking = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -100,13 +101,26 @@ struct PlayerCard: View {
                 Image(systemName: player.symbol).font(.title2)
                 Text(player.name).font(.title3.bold())
                 Spacer()
+                if player.kind == "tv" {
+                    Button { locking = true } label: { Label("Lock…", systemImage: "lock") }.buttonStyle(.bordered)
+                }
                 if player.nowPlaying != nil {
                     Button(role: .destructive) { send(["action": "stop"]) } label: { Image(systemName: "stop.fill") }
                         .buttonStyle(.bordered)
                 }
             }
             if let now = player.nowPlaying {
-                Text(now.title ?? "").font(.headline).lineLimit(1)
+                if now.kind == "track" {
+                    HStack(spacing: 14) {
+                        CoverArt(path: now.art, title: now.title ?? "").frame(width: 70)
+                        VStack(alignment: .leading) {
+                            Text(now.title ?? "").font(.headline).lineLimit(1)
+                            Text(now.artist ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                } else {
+                    Text(now.title ?? "").font(.headline).lineLimit(1)
+                }
                 if let d = now.duration, d > 0 {
                     let at = scrub ?? now.position ?? 0
                     Slider(value: Binding(get: { at }, set: { scrub = $0 }), in: 0...d) { editing in
@@ -121,11 +135,19 @@ struct PlayerCard: View {
                 }
                 HStack(spacing: 34) {
                     Spacer()
-                    Button { send(["action": "skip", "delta": -10]) } label: { Image(systemName: "gobackward.10") }
+                    if now.kind == "track" {
+                        Button { send(["action": "previous"]) } label: { Image(systemName: "backward.fill") }
+                    } else {
+                        Button { send(["action": "skip", "delta": -10]) } label: { Image(systemName: "gobackward.10") }
+                    }
                     Button { send(["action": "toggle"]) } label: {
                         Image(systemName: now.playing ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 54))
                     }
-                    Button { send(["action": "skip", "delta": 30]) } label: { Image(systemName: "goforward.30") }
+                    if now.kind == "track" {
+                        Button { send(["action": "next"]) } label: { Image(systemName: "forward.fill") }
+                    } else {
+                        Button { send(["action": "skip", "delta": 30]) } label: { Image(systemName: "goforward.30") }
+                    }
                     Spacer()
                 }
                 .font(.title)
@@ -151,6 +173,7 @@ struct PlayerCard: View {
         }
         .padding(20)
         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
+        .sheet(isPresented: $locking) { LockEditor(player: player) }
     }
 
     private func send(_ body: [String: Any]) {

@@ -1,7 +1,8 @@
 # Samedia
 
-A modern media player for a Samsung TV (built for the 2022 Frame, QN75LS03B) that plays your NAS library
-with Kodi-level format support, plus a small companion server that runs on nasOS.
+A modern media player for your NAS library — films, shows and music (with a late-90s visualizer and Spotify) —
+on Samsung TVs, Google TV, Android and iPhone/iPad, with Kodi-level format support, plus a small companion server
+that runs on nasOS.
 
 ```
  ┌───────────────────────── Samsung TV (Tizen 6.5) ─────────────────────────┐
