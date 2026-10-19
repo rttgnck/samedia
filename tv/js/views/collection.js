@@ -27,7 +27,7 @@
         c.items.forEach(function (m, i) { if (m.id === keepId) start = i; });
         flow = SM.CoverFlow(c.items, {
           startIndex: start,
-          onChange: function (it) { backdrop.set(it.backdrop || c.backdrop); },
+          onChange: function (it) { backdrop.set(it.scene || it.backdrop ? it : c); },
           onOpen: SM.openItem,
           onPlay: function (it) { SM.quickPlay(it); },
         });

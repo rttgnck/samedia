@@ -5,6 +5,14 @@
   var el = SM.util.el;
 
   var ICONS = {
+    music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    shuffle: '<path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>',
+    prev: '<path d="M19 20 9 12l10-8zM5 19V5"/>',
+    skipnext: '<path d="m5 4 10 8-10 8zM19 5v14"/>',
+    wave: '<path d="M2 12h2l2-6 3 12 3-15 3 18 3-12 2 3h2"/>',
+    spotify: '<circle cx="12" cy="12" r="9.5"/><path d="M7 9.5c3.5-1 7.2-.7 10 1M7.6 12.6c2.8-.8 5.8-.5 8.2.9M8.3 15.5c2.2-.6 4.4-.4 6.4.7"/>',
+    radio: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.5M7.8 16.2a6 6 0 0 1 0-8.5M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+    user2: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
     home: '<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
     film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
     tv: '<rect x="2.5" y="5" width="19" height="13" rx="2"/><path d="M8 21h8M12 18v3"/>',

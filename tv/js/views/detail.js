@@ -154,7 +154,7 @@
         body.appendChild(el('section.row.landscape.detail-next', { 'data-group': '' }, [el('h2', { text: 'Next episode' }),
           el('div.row-track', [nextCard])]));
       }
-      backdrop.set(item.thumb && isEp && !item.backdrop ? item.thumb : item.backdrop);
+      backdrop.set(item.thumb && isEp && !item.backdrop && !item.scene ? { backdrop: item.thumb, logo: item.logo } : item);
       var again = focusedLabel && body.querySelector('[data-k="' + focusedLabel + '"]');
       SM.focus.claim(view, again || playBtn);
     }

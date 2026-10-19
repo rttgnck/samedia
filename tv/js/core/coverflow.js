@@ -38,7 +38,7 @@
     var caption = el('div.cf-caption', [title, meta]);
     var scrubFill = el('i'), scrubLabel = el('span.cf-count');
     var scrub = el('div.cf-scrub', [el('div.cf-track', [scrubFill]), scrubLabel]);
-    var root = el('div.coverflow.f', [stage, caption, scrub]);
+    var root = el('div.coverflow.f' + (opts.square ? '.square' : ''), [stage, caption, scrub]);
 
     function cover(i) {
       var it = items[i];
@@ -94,6 +94,7 @@
         else if (it.watched) bits.push('Watched');
         if (it.bookmarks && it.bookmarks.length) bits.push(SM.util.plural(it.bookmarks.length, 'bookmark'));
         if (it.kind === 'episode') bits.push(it.show_title + ' · ' + SM.util.episodeCode(it));
+        if (it.kind === 'album' && it.artist) bits.push(it.artist);
         if (it.year) bits.push(String(it.year));
         if (it.certification) bits.push(it.certification);
         if (it.kind === 'show' && it.episode_count) bits.push(it.episode_count + ' episodes');

@@ -5,16 +5,37 @@
 
   var el = SM.util.el, ui = SM.ui;
 
-  /** Shared full-bleed backdrop with crossfade, used by home and library screens. */
+  /** Shared full-bleed backdrop with crossfade, used by every browsing screen: a title card of
+   *  what's in focus. Takes an item and uses a picture other than its poster (a text-free scene,
+   *  else its backdrop) with its logo faded in; a poster or album cover (blur) is the fallback. */
   function Backdrop() {
     var a = el('div.backdrop-layer'), b = el('div.backdrop-layer');
-    var root = el('div.backdrop', [a, b, el('div.backdrop-shade')]);
-    var front = a, currentUrl = null, pending = null;
-    root.set = SM.util.debounce(function (url) {
-      if (url === currentUrl) return;
-      currentUrl = url;
+    var logo = el('img.backdrop-logo', { alt: '' });
+    var root = el('div.backdrop', [a, b, el('div.backdrop-shade'), logo]);
+    var front = a, currentKey = null, pending = null;
+
+    function pick(it) {
+      if (!it) return null;
+      if (typeof it === 'string') return { url: it };
+      if (it.scene) return { url: it.scene, logo: it.logo };
+      if (it.backdrop) return { url: it.backdrop, logo: it.logo };
+      if (it.poster) return { url: it.poster, logo: it.logo, blur: true };
+      return it.logo ? { url: null, logo: it.logo } : null;
+    }
+
+    root.set = SM.util.debounce(function (it) {
+      var p = pick(it);
+      var key = p ? (p.url || '') + '|' + (p.logo || '') : null;
+      if (key === currentKey) return;
+      currentKey = key;
       var back = front === a ? b : a;
-      if (!url) {
+      logo.classList.remove('on');
+      if (p && p.logo) {
+        var li = new Image();
+        li.onload = function () { if (currentKey === key) { logo.src = li.src; logo.classList.add('on'); } };
+        li.src = SM.api.art(p.logo, 960);
+      }
+      if (!p || !p.url) {
         front.classList.remove('on');
         back.classList.remove('on');
         return;
@@ -24,11 +45,12 @@
       img.onload = function () {
         if (pending !== img) return;
         back.style.backgroundImage = 'url("' + img.src + '")';
+        back.classList.toggle('blur', !!p.blur);
         back.classList.add('on');
         front.classList.remove('on');
         front = back;
       };
-      img.src = SM.api.art(url, 1920);   // full-screen background: request full width
+      img.src = SM.api.art(p.url, p.blur ? 640 : 1920);
     }, 220);
     return root;
   }
@@ -79,7 +101,7 @@
       var bookmarkShelf = shelves[i].id === 'bookmarks';
       flow = SM.CoverFlow(items, {
         startIndex: start,
-        onChange: function (it) { backdrop.set(it.backdrop); },
+        onChange: function (it) { backdrop.set(it); },
         onOpen: open,
         onPlay: function (it) { quickPlay(it); },
         // Bookmarks shelf: OK lists that title's bookmarks to play from

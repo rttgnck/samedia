@@ -15,6 +15,7 @@
                  ['stretch', 'Stretch', 'Fill the screen, distorts the picture']];
 
   function play(item, opts) {
+    if (SM.music && SM.music.active()) SM.music.stop();      // one thing at a time
     if (item.kind === 'episode' && item.next === undefined) {
       // Row cards are summaries; the player needs the full item to know the next episode.
       SM.api.item(item.id).then(function (full) { play(full, opts); }, function () {

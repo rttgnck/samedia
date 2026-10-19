@@ -9,6 +9,7 @@
     { id: 'home', label: 'Home', icon: 'home', view: 'home' },
     { id: 'movies', label: 'Movies', icon: 'film', view: 'library', params: { kind: 'movies' } },
     { id: 'shows', label: 'TV Shows', icon: 'tv', view: 'library', params: { kind: 'shows' } },
+    { id: 'music', label: 'Music', icon: 'music', view: 'music' },
     { id: 'search', label: 'Search', icon: 'search', view: 'search' },
     { id: 'settings', label: 'Settings', icon: 'gear', view: 'settings' },
   ];
@@ -139,6 +140,7 @@
 
     var top = SM.router.top();
     if (top && top.onKey && top.onKey(action, e)) return;
+    if (SM.music && SM.music.key(action)) return;
 
     if (action === 'exit') { exitApp(); return; }
 
@@ -186,7 +188,16 @@
   }
 
   function goHome() {
-    SM.router.reset('home');
+    SM.router.reset(SM.locked ? 'music' : 'home');
+  }
+
+  /** A screen locked (in the admin page) to music only: just the Music section. */
+  function applyLock(lock) {
+    SM.locked = !!(lock && lock.music_only);
+    document.body.classList.toggle('locked', SM.locked);
+    Array.prototype.forEach.call(nav.querySelectorAll('.nav-item[data-section]'), function (n) {
+      n.classList.toggle('hidden', SM.locked && n.dataset.section !== 'music');
+    });
   }
 
   function selectProfile(p) {
@@ -205,7 +216,8 @@
     SM.serverVersion = (info && info.version) || '';
     if (SM.serverFeatures.indexOf('remote') !== -1) SM.remote.restart();
     if (!info || (info.features || []).indexOf('profiles') === -1) { goHome(); return; }
-    SM.api.profiles().then(function (r) {
+    var device = SM.serverFeatures.indexOf('locks') !== -1 ? SM.api.device().catch(function () { return null; }) : Promise.resolve(null);
+    device.then(applyLock).then(function () { return SM.api.profiles(); }).then(function (r) {
       var list = r.profiles || [];
       if (list.length === 1) {
         selectProfile(list[0]);
@@ -243,7 +255,7 @@
     detectDisplay();
     SM.keys.register();
     views = el('main.views');
-    var shell = el('div.shell', [buildNav(), views]);
+    var shell = el('div.shell', [buildNav(), views, SM.musicPill()]);
     document.getElementById('app').appendChild(shell);
     SM.router.init(views);
     SM.focus.setBaseRoot(function () {

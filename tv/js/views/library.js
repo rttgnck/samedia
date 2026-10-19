@@ -53,7 +53,7 @@
       if (keepFocusId) items.forEach(function (it, i) { if (it.id === keepFocusId) start = i; });
       flow = SM.CoverFlow(items, {
         startIndex: start,
-        onChange: function (it) { backdrop.set(it.backdrop); },
+        onChange: function (it) { backdrop.set(it); },
         onOpen: SM.openItem,
         onPlay: function (it) { SM.quickPlay(it); },
       });

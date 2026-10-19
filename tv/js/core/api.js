@@ -105,6 +105,7 @@
   /** Artwork URL sized for the actual pixels on screen (the server snaps to its cached widths). */
   function art(path, width) {
     if (!path) return null;
+    if (/^https?:/.test(path)) return path;          // Spotify's own images
     var scale = (SM.display && SM.display.artScale) || 1;
     return abs(path + '?w=' + Math.min(1920, Math.round((width || 400) * scale)));
   }
@@ -187,6 +188,24 @@
     base: base, abs: abs, art: art, probe: probe, discover: discover, localIp: localIp,
     get: function (path, opts) { return request('GET', path, undefined, opts); },
     post: function (path, body, opts) { return request('POST', path, body || {}, opts); },
+    music: {
+      home: function () { return request('GET', '/api/v1/music/home'); },
+      albums: function (sort, artist) { return request('GET', '/api/v1/music/albums?sort=' + (sort || 'artist') + (artist ? '&artist=' + artist : '')); },
+      album: function (id) { return request('GET', '/api/v1/music/albums/' + id); },
+      artists: function () { return request('GET', '/api/v1/music/artists'); },
+      artist: function (id) { return request('GET', '/api/v1/music/artists/' + id); },
+      tracks: function (ids) { return request('GET', '/api/v1/music/tracks?ids=' + ids.join(',')); },
+      played: function (id) { return request('POST', '/api/v1/music/played', { track_id: id }); },
+    },
+    spotify: {
+      status: function () { return request('GET', '/api/v1/spotify/status'); },
+      playlists: function () { return request('GET', '/api/v1/spotify/playlists'); },
+      playlist: function (id) { return request('GET', '/api/v1/spotify/playlists/' + id); },
+      devices: function () { return request('GET', '/api/v1/spotify/devices'); },
+      play: function (body) { return request('POST', '/api/v1/spotify/play', body); },
+      radio: function (body) { return request('POST', '/api/v1/spotify/radio', body); },
+    },
+    device: function () { return request('GET', '/api/v1/device'); },
     home: function () { return request('GET', '/api/v1/home'); },
     collection: function (id) { return request('GET', '/api/v1/collections/' + id); },
     profiles: function () { return request('GET', '/api/v1/profiles'); },

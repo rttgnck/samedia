@@ -64,7 +64,16 @@
     if (m.action === 'play') { playHere(m); return; }
     if (m.action === 'key') { SM.app.key(m.key); return; }
     if (m.action === 'volume') { volume(m.key); return; }
-    if (handlers && handlers[m.action]) handlers[m.action](m);
+    if (handlers && handlers[m.action]) { handlers[m.action](m); return; }
+    if (m.profile_id && m.action === 'play_music' && m.profile_id !== S.get('profileId')) {
+      SM.api.profiles().then(function (r) {
+        var p = (r.profiles || []).filter(function (x) { return x.id === m.profile_id; })[0];
+        if (p) SM.app.selectProfile(p);
+        SM.music.command(m);
+      }, function () { SM.music.command(m); });
+      return;
+    }
+    if (SM.music) SM.music.command(m);
   }
 
   function audio() {

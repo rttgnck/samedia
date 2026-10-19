@@ -85,7 +85,7 @@
       view._track = track;
       view._tabs = tabs;
 
-      backdrop.set(show.backdrop);
+      backdrop.set(show);
       var target = focusId && body.querySelector('[data-id="' + focusId + '"]');
       SM.focus.claim(view, target || body.querySelector('.autofocus') || tabs.firstChild);
       if (!target) describe(next && next.season === season ? next : episodesOf(season)[0]);
