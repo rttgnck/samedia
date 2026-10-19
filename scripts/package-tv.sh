@@ -72,8 +72,9 @@ if [ -n "$TV_IP" ]; then
     echo "Host PC IP = this computer's IP, then hold the power button to restart the TV." >&2
     exit 1
   fi
-  TARGET="$(sdb devices | awk 'NR>1 && $1 ~ /'"$TV_IP"'/ {print $3}' | head -1)"
-  echo "→ Installing on ${TARGET:-$TV_IP}"
-  tizen install -n "$ROOT/dist/Samedia.wgt" ${TARGET:+-t "$TARGET"}
-  tizen run -p SamediaTV0.Samedia ${TARGET:+-t "$TARGET"} || true
+  # By its serial (ip:port): the model name in the third column isn't always a valid -t target
+  SERIAL="$(sdb devices | awk 'NR>1 && $1 ~ /^'"$TV_IP"':/ {print $1}' | head -1)"
+  echo "→ Installing on $SERIAL"
+  tizen install -n "$ROOT/dist/Samedia.wgt" -s "$SERIAL"
+  tizen run -p SamediaTV0.Samedia -s "$SERIAL" || true
 fi
