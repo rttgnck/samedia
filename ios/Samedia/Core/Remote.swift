@@ -23,13 +23,16 @@ struct RemotePlayer: Decodable, Identifiable, Hashable {
     let name: String
     let kind: String
     let nowPlaying: NowPlaying?
-    enum CodingKeys: String, CodingKey { case id, name, kind, now_playing }
+    /// Extra controls it takes: "keys" (arrows/OK/back for its menus), "volume".
+    let can: [String]
+    enum CodingKeys: String, CodingKey { case id, name, kind, now_playing, can }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         name = (try? c.decode(String.self, forKey: .name)) ?? "Screen"
         kind = (try? c.decode(String.self, forKey: .kind)) ?? "tv"
         nowPlaying = try? c.decode(NowPlaying.self, forKey: .now_playing)
+        can = (try? c.decode([String].self, forKey: .can)) ?? []
     }
 
     var symbol: String { kind == "tv" ? "tv" : kind == "android" ? "iphone.gen3" : "ipad" }

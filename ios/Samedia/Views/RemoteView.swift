@@ -133,6 +133,21 @@ struct PlayerCard: View {
             } else {
                 Text("Nothing playing").foregroundStyle(.secondary)
             }
+            if player.can.contains("keys") || player.can.contains("volume") {
+                HStack(alignment: .center, spacing: 40) {
+                    Spacer()
+                    if player.can.contains("keys") { DPad { send(["action": "key", "key": $0]) } }
+                    if player.can.contains("volume") {
+                        VStack(spacing: 14) {
+                            KeyButton(symbol: "speaker.plus.fill") { send(["action": "volume", "key": "up"]) }
+                            KeyButton(symbol: "speaker.slash.fill") { send(["action": "volume", "key": "mute"]) }
+                            KeyButton(symbol: "speaker.minus.fill") { send(["action": "volume", "key": "down"]) }
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.top, 6)
+            }
         }
         .padding(20)
         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
@@ -144,5 +159,63 @@ struct PlayerCard: View {
             try? await Task.sleep(for: .milliseconds(300))
             await changed()
         }
+    }
+}
+
+/// Arrows, OK, Back and Home for the screen's own menus.
+private struct DPad: View {
+    let press: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle().fill(Color.white.opacity(0.08)).frame(width: 210, height: 210)
+                VStack(spacing: 0) {
+                    arrow("chevron.up", "up")
+                    HStack(spacing: 0) {
+                        arrow("chevron.left", "left")
+                        Button { tap("enter") } label: {
+                            Text("OK").font(.headline).frame(width: 74, height: 74)
+                                .background(Color.accentColor, in: Circle()).foregroundStyle(.white)
+                        }
+                        arrow("chevron.right", "right")
+                    }
+                    arrow("chevron.down", "down")
+                }
+            }
+            HStack(spacing: 16) {
+                Button { tap("back") } label: { Label("Back", systemImage: "arrow.uturn.backward") }
+                Button { tap("home") } label: { Label("Home", systemImage: "house") }
+            }
+            .buttonStyle(.bordered)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func arrow(_ symbol: String, _ key: String) -> some View {
+        Button { tap(key) } label: {
+            Image(systemName: symbol).font(.title2.weight(.semibold)).frame(width: 66, height: 66).contentShape(Rectangle())
+        }
+    }
+
+    private func tap(_ key: String) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        press(key)
+    }
+}
+
+private struct KeyButton: View {
+    let symbol: String
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
+            Image(systemName: symbol).font(.title3).frame(width: 54, height: 54)
+                .background(Color.white.opacity(0.08), in: Circle())
+        }
+        .buttonStyle(.plain)
     }
 }

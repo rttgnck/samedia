@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.7.0';
+  SM.VERSION = '0.8.0';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -304,7 +304,14 @@
     });
   }
 
-  SM.app = { goHome: goHome, start: start, selectProfile: selectProfile, avatar: avatar };
+  /** A key pressed on a phone acting as this TV's remote. */
+  function remoteKey(action) {
+    if (action === 'home') { if (!(SM.router.top() || {}).fullscreen) goHome(); return; }
+    if (['up', 'down', 'left', 'right', 'enter', 'back'].indexOf(action) === -1) return;
+    dispatch(action, { keyCode: 0, repeat: false, target: document.activeElement, preventDefault: function () {} });
+  }
+
+  SM.app = { goHome: goHome, start: start, selectProfile: selectProfile, avatar: avatar, key: remoteKey };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();

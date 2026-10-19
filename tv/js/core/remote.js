@@ -1,7 +1,7 @@
 /* Remote control. The TV keeps a WebSocket to the server while it runs, so a phone or tablet
  * can tell it what to play (and pause, seek, stop it), and it reports what it is playing.
  * It can also send what it plays to another screen ("Send to…") or start a title there
- * ("Play on…"). */
+ * ("Play on…"). A phone can drive the TV's menus too (arrows, OK, Back) and turn it up/down. */
 (function () {
   'use strict';
 
@@ -12,7 +12,8 @@
   function socketUrl() {
     var base = SM.api.base();
     if (!base) return null;
-    var q = 'device=' + encodeURIComponent(SM.api.deviceId()) + '&name=' + encodeURIComponent(SM.api.deviceName()) + '&kind=tv';
+    var q = 'device=' + encodeURIComponent(SM.api.deviceId()) + '&name=' + encodeURIComponent(SM.api.deviceName()) + '&kind=tv' +
+            '&can=keys' + (audio() ? ',volume' : '');
     if (S.get('token')) q += '&t=' + encodeURIComponent(S.get('token'));
     return base.replace(/^http/, 'ws') + '/api/v1/remote/ws?' + q;
   }
@@ -61,7 +62,32 @@
   function command(m) {
     SM.devlog.log('remote.command', m);
     if (m.action === 'play') { playHere(m); return; }
+    if (m.action === 'key') { SM.app.key(m.key); return; }
+    if (m.action === 'volume') { volume(m.key); return; }
     if (handlers && handlers[m.action]) handlers[m.action](m);
+  }
+
+  function audio() {
+    return window.tizen && tizen.tvaudiocontrol ? tizen.tvaudiocontrol : null;
+  }
+
+  /** The TV's own volume, from a phone. */
+  function volume(key) {
+    var a = audio();
+    if (!a) return;
+    try {
+      if (key === 'mute') {
+        a.setMute(!a.isMute());
+        ui.toast(a.isMute() ? 'Muted' : 'Sound on');
+        return;
+      }
+      if (a.isMute()) a.setMute(false);
+      if (key === 'up') a.setVolumeUp();
+      else if (key === 'down') a.setVolumeDown();
+      ui.toast('Volume ' + a.getVolume());
+    } catch (e) {
+      SM.devlog.log('remote.volume.error', { message: e && e.message });
+    }
   }
 
   /** Another device asked this TV to play something, as a profile, from a time. */

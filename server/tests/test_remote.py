@@ -80,3 +80,16 @@ def test_reconnecting_replaces_the_old_socket_and_pin_is_checked(client, monkeyp
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/api/v1/remote/ws?device=tv-b") as ws:
             ws.receive_json()
+
+
+def test_tvs_take_arrow_keys_and_volume(client):
+    with client.websocket_connect("/api/v1/remote/ws?device=tv-den&name=Den&kind=tv&can=keys,volume,teleport") as tv:
+        tv.send_json({"type": "ping"}); tv.receive_json()
+        players = client.get("/api/v1/remote/players").json()["players"]
+        assert players[0]["can"] == ["keys", "volume"]                    # unknown extras dropped
+        client.post("/api/v1/remote/players/tv-den/command", json={"action": "key", "key": "left"})
+        assert tv.receive_json() == {"type": "command", "action": "key", "key": "left"}
+        client.post("/api/v1/remote/players/tv-den/command", json={"action": "volume", "key": "mute"})
+        assert tv.receive_json() == {"type": "command", "action": "volume", "key": "mute"}
+        assert client.post("/api/v1/remote/players/tv-den/command", json={"action": "key", "key": "power"}).status_code == 400
+        assert client.post("/api/v1/remote/players/tv-den/command", json={"action": "volume", "key": "left"}).status_code == 400

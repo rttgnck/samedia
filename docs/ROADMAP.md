@@ -1,19 +1,25 @@
 # Samedia roadmap
 
-## Next
+## Done
 
-### Remote control and hand-off (in progress)
+### Remote control and hand-off (0.7)
 - Every app (TV, iPhone/iPad, Android) registers with the server as a player and keeps a live
   connection for commands; the server knows what each is playing.
-- "Play on…" from any card or details page: start a title on another screen without playing
-  it here first.
-- "Send to…" from the player's on-screen controls: the other screen picks up at the same
-  moment, this one stops.
+- "Play on…" from any card or details page; "Send to…" from the player's controls.
 - Remote screen: now playing on each player, play/pause, skip, seek, stop.
 
-### Android app
-- Phone-first, built around being a remote (players on the network, now playing, controls,
-  browse and "Play on…"), and plays on the phone too.
+### Android app (0.8)
+- Phone-first remote: every screen that's on, what it plays, scrubbing and transport controls,
+  arrows/OK/Back/Home for a TV's menus and its volume (the phone's volume buttons too).
+- Browse, "Play on…", and plays on the phone (Media3; Dolby/DTS/TrueHD audio decoded on the
+  phone, picture-in-picture, automatic foreign-parts subtitles, hand-off with "Send to").
+
+## Next
+
+### Subtitles without an account
+- OpenSubtitles needs an account for its key; the main no-account source (Podnapisi) is gone.
+  Option: make foreign-parts subtitles on the server itself (speech recognition + translation,
+  e.g. Whisper), run once per title in the background.
 
 ## After that
 

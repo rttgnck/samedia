@@ -554,7 +554,8 @@ def stream_direct(item_id: str, request: Request, ext: str = ""):
 # ── players and remotes (see remote.py) ───────────────────────────────
 
 @app.websocket("/api/v1/remote/ws")
-async def remote_ws(ws: WebSocket, device: str = "", name: str = "", kind: str = "tv", t: str | None = None):
+async def remote_ws(ws: WebSocket, device: str = "", name: str = "", kind: str = "tv", can: str = "",
+                    t: str | None = None):
     """A running app, ready to be told what to play and telling what it plays."""
     if config.pin and not (t and hmac.compare_digest(t, access_token())):
         await ws.close(code=4401)
@@ -565,7 +566,7 @@ async def remote_ws(ws: WebSocket, device: str = "", name: str = "", kind: str =
     await ws.accept()
     name = urllib.parse.unquote(name)[:80] or kind
     await run_in_threadpool(register_device, device, name)
-    player = await remote.hub.connect(ws, device, name, re.sub(r"[^a-z]", "", kind)[:12] or "tv")
+    player = await remote.hub.connect(ws, device, name, re.sub(r"[^a-z]", "", kind)[:12] or "tv", can[:60])
     try:
         while True:
             msg = await ws.receive_json()
@@ -599,6 +600,7 @@ class CommandBody(BaseModel):
     position: float | None = None
     delta: float | None = None
     profile_id: str | None = None
+    key: str | None = None             # "key": up/down/left/right/enter/back/home; "volume": up/down/mute
 
 
 @app.post("/api/v1/remote/players/{device_id}/command", dependencies=[api])
@@ -622,6 +624,10 @@ async def remote_command(device_id: str, body: CommandBody, request: Request):
         msg["position"] = max(body.position, 0)
     elif body.action == "skip":
         msg["delta"] = body.delta or 0
+    elif body.action in ("key", "volume"):
+        if body.key not in (remote.KEYS if body.action == "key" else remote.VOLUME):
+            raise HTTPException(400, "Unknown key")
+        msg["key"] = body.key
     if not await remote.hub.send(device_id, msg):
         raise HTTPException(404, "That player isn't on")
     return {"ok": True}

@@ -28,6 +28,8 @@ audio** when needed, which a Pi 5 does easily. Video is passed through untouched
 |---|---|---|
 | `tv/` | Samsung TV app (Tizen web app) | [tv/README.md](tv/README.md): sideloading, development |
 | `server/` | Media server (Python/FastAPI + ffmpeg, Docker) | [server/README.md](server/README.md): config, API |
+| `ios/` | iPhone/iPad app (SwiftUI): browse, play, remote | `scripts/build-ios.sh` |
+| `android/` | Android phone app (Compose, Media3): remote first, plays too | `scripts/build-android.sh` |
 | `docs/NASOS_INTEGRATION_SPEC.md` | Spec for adding Samedia to the nasOS App Store | [spec](docs/NASOS_INTEGRATION_SPEC.md) |
 | `scripts/package-tv.sh` | Build, sign and install the TV app | |
 | `.github/workflows/server-image.yml` | Multi-arch image → `ghcr.io/rttgnck/samedia-server` | |

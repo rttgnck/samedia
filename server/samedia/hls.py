@@ -311,16 +311,19 @@ def ffprobe_keyframes(path: Path, stream_index: int, duration: float) -> list[fl
     """The keyframe at or before each TARGET mark, from ffprobe (one seek per mark: slow on disks)."""
     marks = ",".join(f"{t:.3f}%+#1" for t in [i * TARGET for i in range(int(duration // TARGET) + 1)])
     cmd = [config.ffprobe, "-v", "error", "-select_streams", str(stream_index), "-read_intervals", marks,
-           "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", str(path)]
+           "-show_entries", "packet=pts_time,dts_time,flags", "-of", "csv=p=0", str(path)]
     out = subprocess.run(cmd, capture_output=True, text=True, timeout=600).stdout
     times = set()
     for line in out.splitlines():
         parts = line.split(",")
-        if len(parts) >= 2 and "K" in parts[1]:
-            try:
-                times.add(float(parts[0]))
-            except ValueError:
-                pass
+        if len(parts) >= 3 and "K" in parts[2]:
+            # AVI packets have no presentation time, only a decode time
+            for t in (parts[0], parts[1]):
+                try:
+                    times.add(float(t))
+                    break
+                except ValueError:
+                    pass
     return sorted(times)
 
 
@@ -447,7 +450,7 @@ def build_cmd(path: str, starts: list[float], n: int, video_index: int, audio_in
     some ffmpeg versions and as absolute times in others (5.1, in the image). Its -initial_offset,
     applied after the cut decisions, then puts every packet at the file's own time + TS_OFFSET.
     """
-    cmd = [config.ffmpeg, "-nostdin", "-v", "error", "-seek_timestamp", "1",
+    cmd = [config.ffmpeg, "-nostdin", "-v", "error", "-fflags", "+genpts", "-seek_timestamp", "1",
            "-ss", f"{starts[n] + SEEK_NUDGE:.3f}", "-i", path, "-map", f"0:{video_index}"]
     if audio_index >= 0:
         cmd += ["-map", f"0:{audio_index}"]

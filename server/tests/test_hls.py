@@ -80,7 +80,7 @@ def add_clip(path, mid="m1"):
     return media
 
 
-@pytest.mark.parametrize("ext", ["mp4", "mkv"])
+@pytest.mark.parametrize("ext", ["mp4", "mkv", "avi"])     # AVI: no index, and no presentation times
 def test_segments_on_demand(client, tmp_path, ext):
     clip = make_clip(tmp_path / f"clip.{ext}")
     add_clip(clip)

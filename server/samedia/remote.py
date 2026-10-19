@@ -10,6 +10,11 @@ Player -> server:  {"type": "state", "item_id", "title", "position", "duration",
 Server -> player:  {"type": "command", "action": "play", "item_id", "position", "profile_id"}
                    {"type": "command", "action": "pause" | "resume" | "toggle" | "stop"}
                    {"type": "command", "action": "seek", "position"} | {"action": "skip", "delta"}
+                   {"type": "command", "action": "key", "key": "up" | "down" | ... }   (players that can "keys")
+                   {"type": "command", "action": "volume", "key": "up" | "down" | "mute"} (players that can "volume")
+
+A player says which extra controls it takes when it connects (?can=keys,volume): a TV can be
+driven through its own menus with arrows/OK/Back and turned up or down; a phone can't.
 """
 
 from __future__ import annotations
@@ -23,7 +28,10 @@ from fastapi import WebSocket
 
 log = logging.getLogger("samedia.remote")
 
-ACTIONS = {"play", "pause", "resume", "toggle", "seek", "skip", "stop"}
+ACTIONS = {"play", "pause", "resume", "toggle", "seek", "skip", "stop", "key", "volume"}
+KEYS = {"up", "down", "left", "right", "enter", "back", "home"}
+VOLUME = {"up", "down", "mute"}
+EXTRAS = {"keys", "volume"}      # what a player may say it can do, besides playing
 
 
 @dataclass
@@ -32,6 +40,7 @@ class Player:
     kind: str
     name: str
     ws: WebSocket
+    can: list[str] = field(default_factory=list)
     connected_at: float = field(default_factory=time.time)
     now: dict | None = None          # what it is playing, as last reported
 
@@ -43,7 +52,8 @@ class Player:
             if n.get("playing") and n.get("position") is not None:
                 n["position"] = min(n["position"] + (time.time() - n["at"]), n.get("duration") or 1e12)
             now = {k: n.get(k) for k in ("item_id", "title", "position", "duration", "playing", "profile_id", "kind")}
-        return {"id": self.device_id, "name": label or self.name, "kind": self.kind, "now_playing": now}
+        return {"id": self.device_id, "name": label or self.name, "kind": self.kind, "now_playing": now,
+                "can": self.can}
 
 
 class Hub:
@@ -51,8 +61,9 @@ class Hub:
         self.players: dict[str, Player] = {}
         self.lock = asyncio.Lock()
 
-    async def connect(self, ws: WebSocket, device_id: str, name: str, kind: str) -> Player:
-        player = Player(device_id=device_id, kind=kind, name=name, ws=ws)
+    async def connect(self, ws: WebSocket, device_id: str, name: str, kind: str, can: str = "") -> Player:
+        extras = [c for c in can.split(",") if c in EXTRAS]
+        player = Player(device_id=device_id, kind=kind, name=name, ws=ws, can=extras)
         async with self.lock:
             old = self.players.get(device_id)
             self.players[device_id] = player
