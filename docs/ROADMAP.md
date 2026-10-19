@@ -14,7 +14,16 @@
 - Browse, "Play on…", and plays on the phone (Media3; Dolby/DTS/TrueHD audio decoded on the
   phone, picture-in-picture, automatic foreign-parts subtitles, hand-off with "Send to").
 
+### Google TV, updater, playback problems (0.9)
+- Samedia on Google TV (Chromecast with Google TV): the TV interface over the native player.
+- `npm run updater`: every screen, its version, update from the codebase; `npm run build`.
+- Apps report playback failures; the admin page lists them. Old codecs re-encoded in segments.
+
 ## Next
+
+### iPhone/iPad: 4K HEVC in MKV
+- Apple's players take HEVC only in fragmented-MP4 segments, so 4K HEVC MKVs can't play on the
+  iPad yet (1080p ones are re-encoded). Serve fMP4 segments of the untouched video for Apple.
 
 ### Subtitles without an account
 - OpenSubtitles needs an account for its key; the main no-account source (Podnapisi) is gone.

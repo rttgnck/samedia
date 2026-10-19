@@ -29,7 +29,8 @@ audio** when needed, which a Pi 5 does easily. Video is passed through untouched
 | `tv/` | Samsung TV app (Tizen web app) | [tv/README.md](tv/README.md): sideloading, development |
 | `server/` | Media server (Python/FastAPI + ffmpeg, Docker) | [server/README.md](server/README.md): config, API |
 | `ios/` | iPhone/iPad app (SwiftUI): browse, play, remote | `scripts/build-ios.sh` |
-| `android/` | Android phone app (Compose, Media3): remote first, plays too | `scripts/build-android.sh` |
+| `android/` | Android app: on phones a remote that plays too (Compose, Media3); on Google TV the TV interface over the native player | `scripts/build-android.sh` |
+| `scripts/updater.mjs` | `npm run updater`: every screen running Samedia, its version, update any of them from this checkout | below |
 | `docs/NASOS_INTEGRATION_SPEC.md` | Spec for adding Samedia to the nasOS App Store | [spec](docs/NASOS_INTEGRATION_SPEC.md) |
 | `scripts/package-tv.sh` | Build, sign and install the TV app | |
 | `.github/workflows/server-image.yml` | Multi-arch image → `ghcr.io/rttgnck/samedia-server` | |
@@ -43,6 +44,25 @@ audio** when needed, which a Pi 5 does easily. Video is passed through untouched
 
 Existing Kodi libraries carry over: `movie.nfo` / `tvshow.nfo` / episode `.nfo` files and `poster.jpg` /
 `fanart.jpg` / `<name>-poster.jpg` artwork are read directly. A TMDB key is optional.
+
+## Updating every screen
+
+```
+npm run updater
+```
+
+Lists every TV, phone and tablet that runs Samedia (the server keeps track of them, with the
+version each runs) next to the latest build, which is made on the spot from this checkout. Pick
+any with the arrow keys and space, press Enter: it builds what's needed and installs it.
+
+| Screen | How the updater reaches it |
+|---|---|
+| Samsung TV | Developer Mode with this Mac as Host PC (found by scanning the network), Tizen Studio's `sdb`/`tizen` |
+| Android phone, Google TV | Developer options → Wireless debugging, paired with `adb pair` |
+| iPhone, iPad | Paired with Xcode; your Apple team id is asked once and kept in `~/.config/samedia/updater.json` |
+
+A screen that's playing something is left unticked. Other commands: `npm run updater -- --list`,
+`npm run build -- tv android ios` (release builds in `dist/release/`), `npm run version -- 1.0.0`.
 
 ## What plays how on the Frame
 

@@ -74,6 +74,8 @@ function versionKey(v) {
 }
 function older(a, b) {
   const x = versionKey(a), y = versionKey(b);
+  // a screen that only says "0.9.0" (no build number) has that version: compare just that much
+  if (!String(a).includes("+") || !String(b).includes("+")) { x.length = Math.min(x.length, 3); y.length = Math.min(y.length, 3); }
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
     if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0);
   }
@@ -362,9 +364,20 @@ async function main() {
   }
   if (!chosen.length) { console.log("Nothing selected."); return; }
 
-  if (chosen.some((t) => t.kind === "ios") && !appleTeam()) {
-    const team = await ask("Apple development team id for iPhone/iPad builds (Xcode → Settings → Accounts): ");
-    if (team) { cfg.appleTeam = team; saveConfig(cfg); console.log(c.dim(`Saved in ${CONFIG_FILE}`)); }
+  if (chosen.some((t) => t.kind === "ios")) {
+    if (process.env.SAMEDIA_TEAM && cfg.appleTeam !== process.env.SAMEDIA_TEAM) {
+      cfg.appleTeam = process.env.SAMEDIA_TEAM;          // remembered for next time (outside the repo)
+      saveConfig(cfg);
+    }
+    if (!appleTeam()) {
+      if (!process.stdin.isTTY) {
+        console.log(c.yellow("iPhone/iPad builds need your Apple team id: run with SAMEDIA_TEAM=<id> once."));
+        chosen = chosen.filter((t) => t.kind !== "ios");
+      } else {
+        const team = await ask("Apple development team id for iPhone/iPad builds (Xcode → Settings → Accounts): ");
+        if (team) { cfg.appleTeam = team; saveConfig(cfg); console.log(c.dim(`Saved in ${CONFIG_FILE}`)); }
+      }
+    }
   }
 
   // one build per platform, then install
