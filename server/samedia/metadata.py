@@ -244,6 +244,20 @@ class Tmdb:
             "backdrop": f"tmdb:{d['backdrop_path']}" if d.get("backdrop_path") else None,
         })
 
+    def cards(self, kind: str, tmdb_id: int, backdrop: str | None) -> dict:
+        """A title card: the title's logo, and a scene without text that isn't its main backdrop."""
+        d = self._get(f"/{'tv' if kind == 'show' else 'movie'}/{tmdb_id}/images", include_image_language="en,null")
+        if not d:
+            return {}
+        vote = lambda i: (i.get("vote_average") or 0, i.get("vote_count") or 0)
+        logos = sorted((i for i in d.get("logos") or [] if i.get("iso_639_1") in ("en", None)
+                        and (i.get("file_path") or "").endswith(".png")), key=vote, reverse=True)
+        main = (backdrop or "").removeprefix("tmdb:")
+        scenes = sorted((i for i in d.get("backdrops") or [] if i.get("iso_639_1") is None
+                         and i.get("file_path") != main and (i.get("width") or 0) >= 1280), key=vote, reverse=True)
+        return {"logo": f"tmdb:{logos[0]['file_path']}" if logos else None,
+                "scene": f"tmdb:{scenes[0]['file_path']}" if scenes else None}
+
     def _find(self, path: str, year_param: str, title: str, year: int | None,
               name_key: str, date_key: str) -> dict | None:
         """Search TMDB, retrying with cleaned-up variants of the title when nothing convincing comes back."""

@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 """
 
-JSON_COLUMNS = {"genres", "media", "sidecar_subs", "cast_members", "collection_hint", "profiles"}
+JSON_COLUMNS = {"genres", "media", "sidecar_subs", "cast_members", "collection_hint", "profiles", "lock"}
 
 DEFAULT_PROFILE = "default"
 # Profile pictures, served from web/avatars/<name>.svg (order = order in the picker)
@@ -198,7 +198,36 @@ def _migrate_5(conn: sqlite3.Connection) -> None:
         )""")
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5]
+def _migrate_6(conn: sqlite3.Connection) -> None:
+    """Music (tracks, albums, artists, what each profile played) and locked screens."""
+    for sql in (
+        """CREATE TABLE IF NOT EXISTS music_tracks (
+            id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL, root TEXT, size INTEGER, mtime REAL,
+            title TEXT, sort_title TEXT, artist TEXT, album_artist TEXT, album TEXT, album_id TEXT, artist_id TEXT,
+            track INTEGER, disc INTEGER, year INTEGER, genre TEXT, compilation INTEGER DEFAULT 0,
+            duration REAL, codec TEXT, bitrate INTEGER, sample_rate INTEGER, channels INTEGER,
+            embedded_art INTEGER DEFAULT 0, tagged INTEGER DEFAULT 1, id_checked_at REAL, added_at REAL NOT NULL)""",
+        """CREATE INDEX IF NOT EXISTS music_tracks_album ON music_tracks(album_id)""",
+        """CREATE TABLE IF NOT EXISTS music_albums (
+            id TEXT PRIMARY KEY, title TEXT, sort_title TEXT, artist TEXT, artist_id TEXT, year INTEGER, genre TEXT,
+            dir TEXT, art TEXT, art_checked_at REAL, mbid TEXT, track_count INTEGER, duration REAL, added_at REAL)""",
+        """CREATE INDEX IF NOT EXISTS music_albums_artist ON music_albums(artist_id)""",
+        """CREATE TABLE IF NOT EXISTS music_artists (
+            id TEXT PRIMARY KEY, name TEXT, sort_name TEXT, album_count INTEGER, track_count INTEGER, added_at REAL)""",
+        """CREATE TABLE IF NOT EXISTS music_history (profile_id TEXT, track_id TEXT, at REAL)""",
+        """CREATE INDEX IF NOT EXISTS music_history_profile ON music_history(profile_id, at)""",
+    ):
+        conn.execute(sql)
+    # A locked screen: {"profile": id, "music_only": true, "albums": [], "artists": [], "playlists": []}
+    _add_column(conn, "devices", "lock", "TEXT")
+    # Title cards: a text-free scene (not the main backdrop) and the title's logo, from TMDB
+    for table in ("items", "shows"):
+        _add_column(conn, table, "scene", "TEXT")
+        _add_column(conn, table, "logo", "TEXT")
+        _add_column(conn, table, "cards_at", "REAL")
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5, _migrate_6]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -265,6 +294,19 @@ def one(sql: str, params: Iterable[Any] | dict = ()) -> dict | None:
 def execute(sql: str, params: Iterable[Any] | dict = ()) -> None:
     with _lock:
         connect().execute(sql, _params(params))
+
+
+def many(sql: str, rows: list) -> None:
+    """One statement for many rows, in a single transaction."""
+    with _lock:
+        conn = connect()
+        conn.execute("BEGIN")
+        try:
+            conn.executemany(sql, rows)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
 
 def upsert(table: str, values: dict, key: str = "id") -> None:

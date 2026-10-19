@@ -7,6 +7,7 @@ import logging
 import os
 import json
 import re
+import shutil
 import time
 import urllib.parse
 import uuid
@@ -20,7 +21,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from . import art, db, forced, frames, hls, library, opensubs, playback, probe, remote, subtitles
+from . import art, db, forced, frames, hls, library, music, opensubs, playback, probe, remote, subtitles
+from .spotify import SpotifyError, spotify
 from .config import API_VERSION, EDITABLE, VERSION, apply_overrides, config
 from .scanner import scanner
 
@@ -68,7 +70,7 @@ class PairBody(BaseModel):
 @app.get("/api/v1/info")
 def info():
     return {"name": config.server_name, "app": "samedia", "version": VERSION, "api": API_VERSION,
-            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars", "hls", "foreign-parts-subtitles", "remote"]}
+            "pin_required": bool(config.pin), "features": ["profiles", "hidden", "collections", "bookmarks", "frames", "devices", "avatars", "hls", "foreign-parts-subtitles", "remote", "music", "spotify", "locks", "folder-kinds"]}
 
 
 @app.post("/api/v1/auth")
@@ -121,8 +123,14 @@ def register_device(did: str, model: str | None, app: str | None = None, version
 
 
 def allowed_profiles(device: dict | None) -> list[dict]:
-    """Profiles this TV may show (all when the TV is unknown or unrestricted)."""
+    """Profiles this TV may show (all when the TV is unknown or unrestricted; a locked screen
+    only the profile it's locked to)."""
     rows = db.query("SELECT * FROM profiles ORDER BY created_at")
+    lock = device and device.get("lock")
+    if lock and lock.get("profile"):
+        picked = [r for r in rows if r["id"] == lock["profile"]]
+        if picked:
+            return picked
     allowed = device and device.get("profiles")
     if allowed is None or allowed is False:
         return rows
@@ -130,14 +138,37 @@ def allowed_profiles(device: dict | None) -> list[dict]:
     return picked or rows[:1]
 
 
-def viewer(request: Request, profile: str | None = Query(None)) -> library.Viewer:
-    """The profile the TV is browsing as (X-Samedia-Profile header), limited to the profiles
-    this TV may show; anything else falls back to the TV's first allowed profile."""
+def _profile_for(request: Request, device: dict | None, profile: str | None) -> dict:
+    """The profile the screen is using (X-Samedia-Profile header), limited to the profiles it may
+    show; anything else falls back to its first allowed profile."""
     pid = request.headers.get("x-samedia-profile") or profile or db.DEFAULT_PROFILE
-    options = allowed_profiles(current_device(request))
+    options = allowed_profiles(device)
     row = next((p for p in options if p["id"] == pid), None) if _PROFILE_ID.match(pid) else None
-    row = row or options[0]
+    return row or options[0]
+
+
+def viewer(request: Request, profile: str | None = Query(None)) -> library.Viewer:
+    """Who is watching (movies and shows). A screen locked to music gets none."""
+    device = current_device(request)
+    if device and (device.get("lock") or {}).get("music_only"):
+        raise HTTPException(403, "This screen plays music only")
+    row = _profile_for(request, device, profile)
     return library.Viewer(profile_id=row["id"], kids=bool(row["kids"]))
+
+
+class Listener:
+    def __init__(self, profile_id: str, lock: dict | None):
+        self.profile_id, self.lock = profile_id, lock
+        self.allowed = music.Allowed(lock)
+
+
+def listener(request: Request, profile: str | None = Query(None)) -> Listener:
+    """Who is listening, and (a locked screen) what they may play."""
+    device = current_device(request)
+    return Listener(_profile_for(request, device, profile)["id"], device and device.get("lock"))
+
+
+Ear = Depends(listener)
 
 
 Me = Depends(viewer)
@@ -528,12 +559,16 @@ def stream_direct(item_id: str, request: Request, ext: str = ""):
     row = library.get_item(item_id)
     if not row:
         raise HTTPException(404)
-    path = Path(row["path"])
+    mime = playback.MIME.get((row.get("media") or {}).get("container"), "application/octet-stream")
+    return _ranged_file(Path(row["path"]), request, mime)
+
+
+def _ranged_file(path: Path, request: Request, mime: str):
+    """A file over HTTP with Range support (players seek by asking for byte ranges)."""
     try:
         size = path.stat().st_size
     except OSError:
         raise HTTPException(404, "File is not reachable (disk unplugged?)")
-    mime = playback.MIME.get((row.get("media") or {}).get("container"), "application/octet-stream")
     headers = {"Accept-Ranges": "bytes", "Content-Type": mime}
 
     start, end, status = 0, size - 1, 200
@@ -617,6 +652,8 @@ class CommandBody(BaseModel):
     delta: float | None = None
     profile_id: str | None = None
     key: str | None = None             # "key": up/down/left/right/enter/back/home; "volume": up/down/mute
+    tracks: list[str] | None = None    # "play_music": the queue (track ids), starting at index
+    index: int | None = None
 
 
 @app.post("/api/v1/remote/players/{device_id}/command", dependencies=[api])
@@ -624,7 +661,20 @@ async def remote_command(device_id: str, body: CommandBody, request: Request):
     if body.action not in remote.ACTIONS:
         raise HTTPException(400, "Unknown action")
     msg: dict = {"type": "command", "action": body.action}
-    if body.action == "play":
+    target = db.one("SELECT * FROM devices WHERE id=?", (device_id,))
+    lock = target and target.get("lock")
+    if body.action == "play" and lock and lock.get("music_only"):
+        raise HTTPException(403, "That screen plays music only")
+    if body.action == "play_music":
+        allowed = music.Allowed(lock)
+        queue = [t["id"] for t in music.tracks(allowed, (body.tracks or [])[:500])]
+        if not queue:
+            raise HTTPException(404 if not body.tracks else 403, "Nothing that screen may play")
+        pid = body.profile_id or request.headers.get("x-samedia-profile") or db.DEFAULT_PROFILE
+        if pid not in [p["id"] for p in allowed_profiles(target)]:
+            pid = allowed_profiles(target)[0]["id"]
+        msg.update(tracks=queue, index=max(0, min(body.index or 0, len(queue) - 1)), profile_id=pid)
+    elif body.action == "play":
         if not body.item_id or not db.one("SELECT id FROM items WHERE id=?", (body.item_id,)):
             raise HTTPException(404, "Title not found")
         # as the sender's profile, if the target may show it (a kids' TV stays kids)
@@ -853,7 +903,7 @@ async def preview_frame(item_id: str, t: float = Query(..., ge=0), w: int = Quer
 
 @app.get("/api/v1/art/{owner_id}/{kind}", dependencies=[api])
 async def artwork(owner_id: str, kind: str, w: int = Query(400, ge=50, le=1920)):
-    if kind not in ("poster", "backdrop", "thumb"):
+    if kind not in ("poster", "backdrop", "thumb", "scene", "logo"):
         raise HTTPException(404)
     table = {"s": "shows", "c": "collections"}.get(owner_id[:1], "items")
     if kind == "thumb" and table != "items":
@@ -861,10 +911,323 @@ async def artwork(owner_id: str, kind: str, w: int = Query(400, ge=50, le=1920))
     row = db.one(f"SELECT {kind} AS ref FROM {table} WHERE id=?", (owner_id,))
     if not row or not row["ref"]:
         raise HTTPException(404)
-    path = await run_in_threadpool(art.resolve, row["ref"], w)
+    path = await run_in_threadpool(art.resolve, row["ref"], w, kind == "logo")
+    if path is None:
+        raise HTTPException(404)
+    return FileResponse(path, media_type="image/png" if kind == "logo" else "image/jpeg",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
+# ── music ─────────────────────────────────────────────────────────────
+
+AUDIO_MIME = {"mp3": "audio/mpeg", "flac": "audio/flac", "aac": "audio/aac", "alac": "audio/mp4", "vorbis": "audio/ogg",
+              "opus": "audio/ogg", "pcm_s16le": "audio/wav", "pcm_s24le": "audio/wav", "wmav2": "audio/x-ms-wma"}
+_AUDIO_EXT_MIME = {".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".flac": "audio/flac", ".ogg": "audio/ogg",
+                   ".oga": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav", ".aac": "audio/aac"}
+
+
+@app.get("/api/v1/music/home", dependencies=[api])
+def music_home(who: Listener = Ear):
+    return music.home(who.allowed, who.profile_id)
+
+
+@app.get("/api/v1/music/albums", dependencies=[api])
+def music_albums(sort: str = "title", artist: str | None = None, who: Listener = Ear):
+    return {"albums": music.albums(who.allowed, sort, artist)}
+
+
+@app.get("/api/v1/music/albums/{album_id}", dependencies=[api])
+def music_album(album_id: str, who: Listener = Ear):
+    detail = music.album_detail(who.allowed, album_id)
+    if not detail:
+        raise HTTPException(404, "Album not found")
+    return detail
+
+
+@app.get("/api/v1/music/artists", dependencies=[api])
+def music_artists(who: Listener = Ear):
+    return {"artists": music.artists(who.allowed)}
+
+
+@app.get("/api/v1/music/artists/{artist_id}", dependencies=[api])
+def music_artist(artist_id: str, who: Listener = Ear):
+    detail = music.artist_detail(who.allowed, artist_id)
+    if not detail:
+        raise HTTPException(404, "Artist not found")
+    return detail
+
+
+@app.get("/api/v1/music/tracks", dependencies=[api])
+def music_tracks(ids: str = Query(..., max_length=4000), who: Listener = Ear):
+    return {"tracks": music.tracks(who.allowed, [i for i in ids.split(",") if i][:200])}
+
+
+@app.get("/api/v1/music/search", dependencies=[api])
+def music_search(q: str = Query(..., min_length=1, max_length=100), who: Listener = Ear):
+    return music.search(who.allowed, q)
+
+
+class PlayedBody(BaseModel):
+    track_id: str
+
+
+@app.post("/api/v1/music/played", dependencies=[api])
+def music_played(body: PlayedBody, who: Listener = Ear):
+    if not db.one("SELECT id FROM music_tracks WHERE id=?", (body.track_id,)):
+        raise HTTPException(404)
+    music.played(who.profile_id, body.track_id)
+    return {"ok": True}
+
+
+@app.get("/api/v1/music/art/{owner_id}", dependencies=[api])
+async def music_art(owner_id: str, w: int = Query(400, ge=50, le=1920)):
+    ref = music.art_ref(owner_id)
+    path = await run_in_threadpool(art.resolve, ref, w) if ref else None
     if path is None:
         raise HTTPException(404)
     return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.api_route("/api/v1/music/stream/{track_id}", methods=["GET", "HEAD"], dependencies=[api])
+@app.api_route("/api/v1/music/stream/{track_id}.{ext}", methods=["GET", "HEAD"], dependencies=[api])
+async def music_stream(track_id: str, request: Request, ext: str = "", format: str | None = None):
+    """A track as it is (Range: players seek in it), or converted (format=mp3|aac) for players
+    that can't take its codec."""
+    row = db.one("SELECT path, codec, album_id FROM music_tracks WHERE id=?", (track_id,))
+    if not row:
+        raise HTTPException(404)
+    device = current_device(request)
+    if not music.Allowed(device and device.get("lock")).album(row["album_id"]):
+        raise HTTPException(403, "Not approved for this screen")
+    path = Path(row["path"])
+    if format in ("mp3", "aac"):
+        args = ["-c:a", "libmp3lame", "-b:a", "256k", "-f", "mp3"] if format == "mp3" else \
+               ["-c:a", "aac", "-b:a", "256k", "-f", "adts"]
+        cmd = [config.ffmpeg, "-nostdin", "-v", "error", "-i", str(path), "-vn", "-sn", *args, "pipe:1"]
+
+        async def body():
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.DEVNULL)
+            try:
+                while chunk := await proc.stdout.read(64 * 1024):
+                    yield chunk
+            finally:
+                if proc.returncode is None:
+                    proc.kill()
+                    await proc.wait()
+
+        return StreamingResponse(body(), media_type="audio/mpeg" if format == "mp3" else "audio/aac")
+    mime = _AUDIO_EXT_MIME.get(path.suffix.lower()) or AUDIO_MIME.get(row["codec"] or "", "application/octet-stream")
+    return _ranged_file(path, request, mime)
+
+
+# ── this screen, and locking screens ─────────────────────────────────
+
+@app.get("/api/v1/device", dependencies=[api])
+def this_device(request: Request):
+    """What this screen is allowed: a locked one shows only music (and only what was approved)."""
+    device = current_device(request)
+    lock = device and device.get("lock")
+    return {"id": device and device["id"], "locked": bool(lock),
+            "music_only": bool(lock and lock.get("music_only")), "profile": lock and lock.get("profile")}
+
+
+class LockBody(BaseModel):
+    profile: str
+    music_only: bool = True
+    albums: list[str] = []
+    artists: list[str] = []
+    playlists: list[str] = []          # Spotify playlist ids
+
+
+@app.put("/api/v1/admin/devices/{device_id}/lock", dependencies=[api])
+def lock_device(device_id: str, body: LockBody):
+    if not db.one("SELECT id FROM devices WHERE id=?", (device_id,)):
+        raise HTTPException(404, "Screen not found")
+    if not db.one("SELECT id FROM profiles WHERE id=?", (body.profile,)):
+        raise HTTPException(400, "Unknown profile")
+    lock = {"profile": body.profile, "music_only": body.music_only,
+            "albums": [a for a in dict.fromkeys(body.albums) if a.startswith("a")][:500],
+            "artists": [a for a in dict.fromkeys(body.artists) if a.startswith("r")][:200],
+            "playlists": [re.sub(r"[^A-Za-z0-9]", "", p)[:40] for p in dict.fromkeys(body.playlists)][:100]}
+    db.execute("UPDATE devices SET lock=? WHERE id=?", (json.dumps(lock), device_id))
+    return _device_out(db.one("SELECT * FROM devices WHERE id=?", (device_id,)))
+
+
+@app.delete("/api/v1/admin/devices/{device_id}/lock", dependencies=[api])
+def unlock_device(device_id: str):
+    db.execute("UPDATE devices SET lock=NULL WHERE id=?", (device_id,))
+    return {"ok": True}
+
+
+@app.get("/api/v1/admin/folders", dependencies=[api])
+def browse_folders(path: str = "/"):
+    """Folders on the server, to pick media folders from in the admin page (folders only)."""
+    p = Path(path or "/").resolve()
+    try:
+        dirs = sorted((d for d in p.iterdir() if d.is_dir() and not d.name.startswith(".")), key=lambda d: d.name.lower())
+    except OSError:
+        raise HTTPException(404, "Can't open that folder")
+    return {"path": str(p), "parent": str(p.parent) if p != p.parent else None,
+            "folders": [{"name": d.name, "path": str(d)} for d in dirs[:500]]}
+
+
+@app.get("/api/v1/admin/music", dependencies=[api])
+def music_status():
+    pending = db.one("SELECT COUNT(*) AS n FROM music_albums WHERE art IS NULL AND art_checked_at IS NULL")["n"]
+    untagged = db.one("SELECT COUNT(*) AS n FROM music_tracks WHERE tagged=0")["n"]
+    return {**music.stats(), "albums_without_art": db.one("SELECT COUNT(*) AS n FROM music_albums WHERE art IS NULL")["n"],
+            "art_pending": pending, "untagged": untagged,
+            "acoustid": bool(config.acoustid_key), "fpcalc": bool(shutil.which("fpcalc"))}
+
+
+# ── Spotify (see spotify.py) ──────────────────────────────────────────
+
+def _spotify(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except SpotifyError as e:
+        raise HTTPException(e.status, str(e)) from None
+
+
+def _spotify_allowed(who: Listener, uri: str | None = None) -> None:
+    """A locked screen plays only its approved playlists."""
+    if not who.lock:
+        return
+    approved = {f"spotify:playlist:{p}" for p in who.lock.get("playlists") or []}
+    if uri is None or uri not in approved:
+        raise HTTPException(403, "Not approved for this screen")
+
+
+@app.get("/api/v1/spotify/status", dependencies=[api])
+def spotify_status():
+    return _spotify(spotify.status)
+
+
+@app.get("/api/v1/spotify/playlists", dependencies=[api])
+def spotify_playlists(who: Listener = Ear):
+    lists = _spotify(spotify.playlists)
+    if who.lock:
+        approved = set(who.lock.get("playlists") or [])
+        lists = [p for p in lists if p["id"] in approved]
+    return {"playlists": lists}
+
+
+@app.get("/api/v1/spotify/playlists/{playlist_id}", dependencies=[api])
+def spotify_playlist(playlist_id: str, who: Listener = Ear):
+    if who.lock:
+        _spotify_allowed(who, f"spotify:playlist:{playlist_id}")
+    return _spotify(spotify.playlist, playlist_id)
+
+
+@app.get("/api/v1/spotify/search", dependencies=[api])
+def spotify_search(q: str = Query(..., min_length=1, max_length=100), who: Listener = Ear):
+    _spotify_allowed(who) if who.lock else None
+    return _spotify(spotify.search, q)
+
+
+@app.get("/api/v1/spotify/albums/{album_id}", dependencies=[api])
+def spotify_album(album_id: str, who: Listener = Ear):
+    _spotify_allowed(who) if who.lock else None
+    return _spotify(spotify.album, album_id)
+
+
+@app.get("/api/v1/spotify/artists/{artist_id}", dependencies=[api])
+def spotify_artist(artist_id: str, who: Listener = Ear):
+    _spotify_allowed(who) if who.lock else None
+    return _spotify(spotify.artist, artist_id)
+
+
+@app.get("/api/v1/spotify/devices", dependencies=[api])
+def spotify_devices():
+    return {"devices": _spotify(spotify.devices)}
+
+
+@app.get("/api/v1/spotify/player", dependencies=[api])
+def spotify_player():
+    return {"player": _spotify(spotify.player)}
+
+
+class SpotifyPlayBody(BaseModel):
+    device_id: str
+    context_uri: str | None = None
+    uris: list[str] | None = None
+    offset: int | None = None
+
+
+@app.post("/api/v1/spotify/play", dependencies=[api])
+def spotify_play(body: SpotifyPlayBody, who: Listener = Ear):
+    if who.lock:
+        _spotify_allowed(who, body.context_uri)
+    _spotify(spotify.play, body.device_id, body.context_uri, body.uris, body.offset)
+    return {"ok": True}
+
+
+class SpotifyControlBody(BaseModel):
+    action: str
+    value: float | bool | None = None
+    device_id: str | None = None
+
+
+@app.post("/api/v1/spotify/control", dependencies=[api])
+def spotify_control(body: SpotifyControlBody):
+    _spotify(spotify.control, body.action, body.value, body.device_id)
+    return {"ok": True}
+
+
+class SpotifyRadioBody(BaseModel):
+    device_id: str
+    seed: str                          # a track or artist uri
+
+
+@app.post("/api/v1/spotify/radio", dependencies=[api])
+def spotify_radio(body: SpotifyRadioBody, who: Listener = Ear):
+    _spotify_allowed(who) if who.lock else None
+    return {"tracks": _spotify(spotify.radio, body.device_id, body.seed)}
+
+
+class SpotifyConnectBody(BaseModel):
+    client_id: str
+
+
+@app.post("/api/v1/admin/spotify/connect", dependencies=[api])
+def spotify_connect(body: SpotifyConnectBody):
+    cid = re.sub(r"[^A-Za-z0-9]", "", body.client_id)[:64]
+    if len(cid) < 16:
+        raise HTTPException(400, "That doesn't look like a Spotify client id")
+    return {"url": spotify.authorize_url(cid), "redirect_uri": spotify_redirect()}
+
+
+def spotify_redirect() -> str:
+    from .spotify import REDIRECT
+    return REDIRECT
+
+
+class SpotifyFinishBody(BaseModel):
+    url: str
+
+
+@app.post("/api/v1/admin/spotify/finish", dependencies=[api])
+def spotify_finish(body: SpotifyFinishBody):
+    return _spotify(spotify.finish, body.url)
+
+
+@app.get("/api/v1/spotify/callback")
+def spotify_callback(request: Request):
+    """Where Spotify sends the browser back to (only reachable when it runs on the server itself)."""
+    try:
+        spotify.finish(str(request.url))
+        text = "Spotify is connected. You can close this tab."
+    except SpotifyError as e:
+        text = f"Couldn't connect Spotify: {e}"
+    return Response(f"<!doctype html><meta charset=utf-8><title>Samedia</title><p style='font:20px sans-serif'>{text}",
+                    media_type="text/html")
+
+
+@app.post("/api/v1/admin/spotify/disconnect", dependencies=[api])
+def spotify_disconnect():
+    spotify.disconnect()
+    return {"ok": True}
 
 
 # ── admin ───────────────────────────────────────────────────────────
@@ -872,12 +1235,12 @@ async def artwork(owner_id: str, kind: str, w: int = Query(400, ge=50, le=1920))
 @app.get("/api/v1/admin/status", dependencies=[api])
 def admin_status():
     roots = [{"path": r, "reachable": Path(r).is_dir()} for r in config.media_roots]
-    return {"scan": scanner.status, "stats": library.stats(), "roots": roots,
+    return {"scan": scanner.status, "stats": library.stats(), "music": music.stats(), "roots": roots,
             "streams": playback.active_sessions(), "version": VERSION}
 
 
 _MASK = "••••"
-_SECRETS = ("tmdb_key", "opensubtitles_key", "opensubtitles_password")
+_SECRETS = ("tmdb_key", "opensubtitles_key", "opensubtitles_password", "acoustid_key")
 
 
 def _masked(key: str) -> str:
@@ -901,12 +1264,14 @@ def put_settings(body: dict):
     for secret in _SECRETS:
         if str(body.get(secret, "")).startswith(_MASK):
             body.pop(secret)            # the masked value came back unchanged
-    old_key = config.tmdb_key
+    old_key, old_folders = config.tmdb_key, (list(config.media_roots), dict(config.root_kinds))
     apply_overrides(body)
     for k in body:
         db.save_setting(k, getattr(config, k))
     if config.tmdb_key != old_key and config.tmdb_key:
         _refresh_metadata()
+    elif (list(config.media_roots), dict(config.root_kinds)) != old_folders:
+        scanner.request_scan()          # folders, or what they hold, changed
     return get_settings()
 
 

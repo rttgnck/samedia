@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import db, metadata, naming, probe, subtitles
+from . import db, metadata, music, naming, probe, subtitles
 from .config import config
 
 log = logging.getLogger("samedia.scanner")
@@ -62,7 +62,8 @@ class Scanner:
                     log.warning("media root not reachable: %s", root)
                     continue
                 reachable.append(root)
-                files.extend((root, f) for f in self._walk(root))
+                if config.kind_of(root) != "music":
+                    files.extend((root, f) for f in self._walk(root))
             self.status["found"] = len(files)
 
             known = {r["path"]: r for r in db.query("SELECT id, kind, path, size, mtime FROM items")}
@@ -74,7 +75,7 @@ class Scanner:
                     continue
                 row = known.get(str(f))
                 if row and row["size"] == st.st_size and abs(row["mtime"] - st.st_mtime) < 1 \
-                        and naming.parse(f, root).kind == row["kind"]:
+                        and naming.parse(f, root, prefer=config.kind_of(root)).kind == row["kind"]:
                     self.status["processed"] += 1
                     continue
                 todo.append((root, f, st))
@@ -84,11 +85,18 @@ class Scanner:
                 for _ in pool.map(lambda t: self._process(*t), todo):
                     self.status["processed"] += 1
 
+            self.status["phase"] = "music"
+            music.scan([(r, config.kind_of(r)) for r in roots], self.status)
+
             self.status["phase"] = "cleanup"
             self._remove_missing({str(f) for _, f in files}, reachable)
             self._refresh_sidecars(files)
             self._refresh_show_art()
             self._enrich_pending()
+            self.status["phase"] = "title cards"
+            self._title_cards()
+            self.status["phase"] = "music artwork"
+            music.enrich()
             self.status["phase"] = "collections"
             self._refresh_collections()
         finally:
@@ -119,7 +127,8 @@ class Scanner:
                    if p.suffix.lower() in naming.VIDEO_EXTS and not p.name.startswith("."))
 
     def _index_file(self, root: Path, path: Path, st: os.stat_result) -> None:
-        parsed = naming.parse(path, root, folder_exclusive=self._video_siblings(path, root) == 1)
+        parsed = naming.parse(path, root, folder_exclusive=self._video_siblings(path, root) == 1,
+                              prefer=config.kind_of(root))
         item_id = make_id("m" if parsed.kind == "movie" else "e", str(path))
         previous = db.one("SELECT id, media, size, mtime, added_at FROM items WHERE path=?", (str(path),))
         if previous and previous["id"] != item_id:
@@ -339,6 +348,19 @@ class Scanner:
             values = self._show_metadata(Path(show_path), parsed.show_title, parsed.year)
             db.upsert("shows", {"id": show_id, "path": show_path, "added_at": time.time(), **values})
             return show_id
+
+    def _title_cards(self, limit: int = 400) -> None:
+        """Logos and text-free scenes for titles TMDB knows (checked again after a month)."""
+        if not metadata.tmdb.enabled:
+            return
+        old = time.time() - 30 * 86400
+        for table, kind, cond in (("items", "movie", "kind='movie'"), ("shows", "show", "1=1")):
+            rows = db.query(f"SELECT id, tmdb_id, backdrop FROM {table} WHERE {cond} AND tmdb_id IS NOT NULL "
+                            "AND (cards_at IS NULL OR cards_at < ?) LIMIT ?", (old, limit))
+            for r in rows:
+                cards = metadata.tmdb.cards(kind, r["tmdb_id"], r["backdrop"])
+                db.execute(f"UPDATE {table} SET logo=?, scene=?, cards_at=? WHERE id=?",
+                           (cards.get("logo"), cards.get("scene"), time.time(), r["id"]))
 
     def _remove_missing(self, present: set[str], reachable: list[Path]) -> None:
         reachable_roots = {str(r) for r in reachable}

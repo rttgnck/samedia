@@ -12,6 +12,8 @@ Server -> player:  {"type": "command", "action": "play", "item_id", "position", 
                    {"type": "command", "action": "seek", "position"} | {"action": "skip", "delta"}
                    {"type": "command", "action": "key", "key": "up" | "down" | ... }   (players that can "keys")
                    {"type": "command", "action": "volume", "key": "up" | "down" | "mute"} (players that can "volume")
+                   {"type": "command", "action": "play_music", "tracks": [ids], "index", "profile_id"}
+                   {"type": "command", "action": "next" | "previous"}             (music)
 
 A player says which extra controls it takes when it connects (?can=keys,volume): a TV can be
 driven through its own menus with arrows/OK/Back and turned up or down; a phone can't.
@@ -28,7 +30,7 @@ from fastapi import WebSocket
 
 log = logging.getLogger("samedia.remote")
 
-ACTIONS = {"play", "pause", "resume", "toggle", "seek", "skip", "stop", "key", "volume"}
+ACTIONS = {"play", "pause", "resume", "toggle", "seek", "skip", "stop", "key", "volume", "play_music", "next", "previous"}
 KEYS = {"up", "down", "left", "right", "enter", "back", "home"}
 VOLUME = {"up", "down", "mute"}
 EXTRAS = {"keys", "volume"}      # what a player may say it can do, besides playing
@@ -51,7 +53,8 @@ class Player:
             n = dict(self.now)
             if n.get("playing") and n.get("position") is not None:
                 n["position"] = min(n["position"] + (time.time() - n["at"]), n.get("duration") or 1e12)
-            now = {k: n.get(k) for k in ("item_id", "title", "position", "duration", "playing", "profile_id", "kind")}
+            now = {k: n.get(k) for k in ("item_id", "title", "position", "duration", "playing", "profile_id", "kind",
+                                         "art", "artist")}
         return {"id": self.device_id, "name": label or self.name, "kind": self.kind, "now_playing": now,
                 "can": self.can}
 
@@ -87,6 +90,8 @@ class Hub:
         player.now = {
             "item_id": str(state["item_id"])[:40], "title": str(state.get("title") or "")[:200],
             "kind": str(state.get("kind") or "")[:20],
+            "art": str(state["art"])[:200] if str(state.get("art") or "").startswith("/api/v1/") else None,
+            "artist": str(state.get("artist") or "")[:200] or None,
             "position": _num(state.get("position")), "duration": _num(state.get("duration")),
             "playing": bool(state.get("playing")), "profile_id": state.get("profile_id"), "at": time.time(),
         }

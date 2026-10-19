@@ -121,10 +121,12 @@ def _same_name(a: str, b: str) -> bool:
     return bool(na and nb) and (na.startswith(nb) or nb.startswith(na))
 
 
-def parse(path: Path, root: Path, folder_exclusive: bool = False) -> Parsed:
-    """folder_exclusive: the video's folder holds only this movie (folder-per-movie layout)."""
+def parse(path: Path, root: Path, folder_exclusive: bool = False, prefer: str = "auto") -> Parsed:
+    """folder_exclusive: the video's folder holds only this movie (folder-per-movie layout).
+    prefer: what the folder was set to hold in the admin page: "movies" never reads a file as
+    an episode, "shows" reads every file as one; "auto" decides by the names."""
     stem = path.stem
-    for pattern in _EPISODE_PATTERNS:
+    for pattern in (_EPISODE_PATTERNS if prefer != "movies" else ()):
         m = pattern.search(stem)
         if not m:
             continue
@@ -161,6 +163,18 @@ def parse(path: Path, root: Path, folder_exclusive: bool = False) -> Parsed:
             show_title=show_title, show_dir=show_dir,
             season=int(season_dir.group(1) or season_dir.group(2)), episode=ep,
         )
+
+    # A TV-shows folder: the first folder under it is the show, numbers in the name the episode
+    if prefer == "shows" and path.parent != root:
+        rel = path.relative_to(root)
+        show_dir = root / rel.parts[0]
+        show_title, show_year = split_title_year(show_dir.name)
+        season_m = _SEASON_DIR.match(path.parent.name)
+        num = re.search(r"(\d{1,3})(?!\d)", stem)
+        ep = int(num.group(1)) if num else 1
+        return Parsed(kind="episode", title=clean(stem[num.end():] if num else stem) or f"Episode {ep}",
+                      year=show_year, show_title=show_title, show_dir=show_dir,
+                      season=int(season_m.group(1) or season_m.group(2)) if season_m else 1, episode=ep)
 
     # Folder-per-movie layouts usually name the folder better than the file.
     name = stem

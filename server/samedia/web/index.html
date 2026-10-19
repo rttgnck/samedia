@@ -5,52 +5,71 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Samedia Server</title>
 <style>
-  :root { --bg:#0d0f14; --card:#161a22; --line:#262c38; --text:#e8ebf1; --dim:#8a93a6; --accent:#5b8cff; --accent-text:#fff; --input:#0f1218; --ok:#3ecf8e; --bad:#ff6b6b; }
+  :root { --bg:#0d0f14; --card:#161a22; --line:#262c38; --text:#e8ebf1; --dim:#8a93a6; --accent:#5b8cff; --accent-text:#fff; --input:#0f1218; --ok:#3ecf8e; --bad:#ff6b6b; --warn:#ffb547; }
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
-  h1 { font-size: 26px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 0 0 14px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
-  .sub { color: var(--dim); margin-bottom: 28px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 18px; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-  .stat b { display: block; font-size: 28px; } .stat span { color: var(--dim); font-size: 13px; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { font-size: 24px; margin: 0; } h2 { font-size: 13px; margin: 0 0 12px; color: var(--dim); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+  h3 { font-size: 15px; margin: 18px 0 8px; }
+  .sub { color: var(--dim); }
+  nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 18px; position: sticky; top: 0; background: var(--bg); z-index: 5; padding-top: 6px; }
+  nav.tabs button { background: none; color: var(--dim); border-radius: 8px 8px 0 0; padding: 9px 14px; border: 0; font-weight: 600; }
+  nav.tabs button.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  nav.tabs .badge { background: var(--bad); color: #fff; border-radius: 9px; font-size: 11px; padding: 0 6px; margin-left: 6px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .stat b { display: block; font-size: 26px; } .stat span { color: var(--dim); font-size: 13px; }
   label { display: block; font-weight: 600; margin: 14px 0 6px; } label small { color: var(--dim); font-weight: 400; }
-  input, textarea { width: 100%; background: var(--input); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; }
-  textarea { min-height: 90px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  button { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  input, textarea, select { width: 100%; background: var(--input); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font: inherit; }
+  select { width: auto; }
+  button { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button.danger { background: transparent; border: 1px solid var(--bad); color: var(--bad); }
+  button.small { padding: 6px 11px; font-size: 13px; }
   button:disabled { opacity: .5; cursor: default; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .root { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
-  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .grow { flex: 1; min-width: 160px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
   .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
   .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
-  .muted { color: var(--dim); font-size: 13px; word-break: break-all; }
+  .muted { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
   a { color: var(--accent); }
   .check { display: flex; gap: 8px; align-items: center; margin-top: 14px; } .check input { width: auto; }
   #login { display: none; }
-  .person, .tv { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .person:last-child, .tv:last-child { border-bottom: 0; }
-  .dot { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; }
-  .person input[type=text], .tv input[type=text] { flex: 1; min-width: 160px; }
+  .list > div { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .list > div:last-child { border-bottom: 0; }
+  .dot { width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; }
   .inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-weight: 500; }
   .inline input { width: auto; }
-  .tv-profiles { display: flex; gap: 14px; flex-wrap: wrap; width: 100%; padding-left: 36px; }
-  select { background: var(--input); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font: inherit; }
-  button.small { padding: 7px 12px; font-size: 13px; }
+  .indent { width: 100%; padding-left: 38px; }
   .pic { width: 44px; height: 44px; border-radius: 50%; flex: none; padding: 0; overflow: hidden; display: grid; place-items: center;
     font-size: 18px; font-weight: 700; color: #fff; outline-offset: 2px; }
   .pic img { width: 100%; height: 100%; display: block; }
   .pic:hover, .pic.on { outline: 2px solid var(--accent); }
   .pics { flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fill, 52px); gap: 10px; padding: 6px 0 4px; }
   .pics .pic { width: 52px; height: 52px; }
+  .browser { border: 1px solid var(--line); border-radius: 8px; max-height: 260px; overflow: auto; margin-top: 8px; }
+  .browser div { padding: 7px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
+  .browser div:hover { background: var(--input); }
+  .lockbox { width: 100%; margin: 8px 0 0 38px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { background: var(--input); border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px; font-size: 13px; }
+  .chip button { background: none; border: 0; color: var(--dim); padding: 0 0 0 6px; }
+  .pick { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; }
+  .pick label { margin: 0; padding: 6px 10px; font-weight: 400; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
+  .pick label input { width: auto; }
+  .steps { margin: 6px 0 0; padding-left: 20px; } .steps li { margin: 6px 0; }
+  .copy { display: inline-flex; gap: 6px; align-items: center; background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px 2px 8px; }
+  .pill { font-size: 12px; border-radius: 10px; padding: 1px 8px; background: var(--input); border: 1px solid var(--line); }
+  section.tab { display: none; } section.tab.on { display: block; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Samedia Server</h1>
-  <div class="sub" id="ver">Media server for the Samedia Samsung TV app</div>
+  <header><h1>Samedia</h1><span class="sub" id="ver"></span></header>
 
   <section class="card" id="login">
     <h2>Enter PIN</h2>
@@ -59,83 +78,157 @@
   </section>
 
   <div id="app" style="display:none">
-    <section class="card">
-      <h2>Library</h2>
-      <div class="stats">
-        <div class="stat"><b id="nMovies">–</b><span>Movies</span></div>
-        <div class="stat"><b id="nShows">–</b><span>TV shows</span></div>
-        <div class="stat"><b id="nEps">–</b><span>Episodes</span></div>
-        <div class="stat"><b id="nCols">–</b><span>Collections</span></div>
-        <div class="stat"><b id="nStreams">–</b><span>Active conversions</span></div>
+    <nav class="tabs" id="tabs"></nav>
+
+    <!-- ── overview ── -->
+    <section class="tab" data-tab="Overview">
+      <div class="card">
+        <h2>Library</h2>
+        <div class="stats">
+          <div class="stat"><b id="nMovies">–</b><span>Movies</span></div>
+          <div class="stat"><b id="nShows">–</b><span>TV shows</span></div>
+          <div class="stat"><b id="nEps">–</b><span>Episodes</span></div>
+          <div class="stat"><b id="nAlbums">–</b><span>Albums</span></div>
+          <div class="stat"><b id="nArtists">–</b><span>Artists</span></div>
+          <div class="stat"><b id="nTracks">–</b><span>Songs</span></div>
+          <div class="stat"><b id="nStreams">–</b><span>Converting now</span></div>
+        </div>
+        <div style="margin-top:16px" class="row">
+          <button id="scanBtn">Scan library now</button>
+          <span class="muted" id="scanText"></span>
+        </div>
+        <div class="bar"><i id="scanBar"></i></div>
+        <p class="muted" id="scanFile"></p>
       </div>
-      <div style="margin-top:18px" class="row">
-        <button id="scanBtn">Scan library now</button>
-        <span class="muted" id="scanText"></span>
-      </div>
-      <div class="bar"><i id="scanBar"></i></div>
-      <p class="muted" id="scanFile"></p>
+      <div class="card"><h2>On now</h2><div class="list" id="onNow"></div></div>
     </section>
 
-    <section class="card">
-      <h2>Media folders</h2>
-      <div id="roots"></div>
-      <label>Folders to scan <small>— one per line, as seen inside the container</small></label>
-      <textarea id="media_roots"></textarea>
-    </section>
-
-    <section class="card">
-      <h2>Profiles</h2>
-      <p class="muted">Who's watching. Each profile has its own watch history, bookmarks and hidden titles.
-        Kids profiles only show titles rated G, PG, TV-Y, TV-Y7, TV-G or TV-PG.</p>
-      <div id="people"></div>
-      <div class="row" style="margin-top:12px">
-        <input id="newPerson" type="text" placeholder="New profile name" style="max-width:260px">
-        <label class="inline"><input type="checkbox" id="newPersonKids"> Kids</label>
-        <button class="small" id="addPerson">Add profile</button>
-        <span class="muted" id="peopleText"></span>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Screens</h2>
-      <p class="muted">Every TV, phone and tablet that has connected, with the Samedia version it runs. Choose which profiles each one offers — e.g. only Kids in a child's room.</p>
-      <div id="tvs"></div>
-      <div class="row" style="margin-top:12px">
-        <span class="muted">New screens offer:</span>
-        <div id="newTvProfiles" class="row"></div>
+    <!-- ── folders ── -->
+    <section class="tab" data-tab="Folders">
+      <div class="card">
+        <h2>Media folders</h2>
+        <p class="muted">Folders on the server to scan. Saying what each one holds helps telling movies, shows and music apart
+          (Auto decides by the names). Changes start a scan.</p>
+        <div class="list" id="folders"></div>
+        <h3>Add a folder</h3>
+        <div class="row"><input id="newFolder" class="grow mono" placeholder="/mnt/disk/Music"><button class="ghost" id="browseBtn">Browse…</button><button id="addFolderBtn">Add</button></div>
+        <div id="browser" class="browser" hidden></div>
+        <p class="muted" id="foldersText"></p>
       </div>
     </section>
 
-    <section class="card">
-      <h2>Playback problems</h2>
-      <p class="muted">Titles a screen couldn't play, newest first. "Recovered" means it then played another way.</p>
-      <div id="problems"></div>
+    <!-- ── music ── -->
+    <section class="tab" data-tab="Music">
+      <div class="card">
+        <h2>Music</h2>
+        <div class="stats">
+          <div class="stat"><b id="mAlbums">–</b><span>Albums</span></div>
+          <div class="stat"><b id="mArtists">–</b><span>Artists</span></div>
+          <div class="stat"><b id="mTracks">–</b><span>Songs</span></div>
+          <div class="stat"><b id="mNoArt">–</b><span>Albums without art</span></div>
+          <div class="stat"><b id="mUntagged">–</b><span>Files without tags</span></div>
+        </div>
+        <p class="muted">Songs are named from their tags, or from their folders (Artist/Album/01 - Title). Album art comes from the
+          album's folder (cover.jpg), the files themselves, or the Cover Art Archive (MusicBrainz, no key needed).</p>
+      </div>
+      <div class="card">
+        <h2>Naming untagged files</h2>
+        <label>AcoustID API key <small>— optional; recognises files without tags by their sound.
+          Get one at <a href="https://acoustid.org/new-application" target="_blank" rel="noopener">acoustid.org/new-application</a>
+          (sign in, register "Samedia", copy the API key).</small></label>
+        <div class="row"><input id="acoustid_key" class="grow" placeholder="API key" autocomplete="off"><button id="saveAcoustid">Save</button></div>
+        <p class="muted" id="acoustidText"></p>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>Settings</h2>
-      <label>Server name <small>— shown on the TV</small></label>
-      <input id="server_name">
-      <label>PIN <small>— leave empty for no PIN (anyone on your network can browse)</small></label>
-      <input id="pinSetting" type="text" inputmode="numeric">
-      <label>TMDB API key <small>— optional; covers, plots, cast, age ratings (for kids profiles) and collections.
-        Stored only on this server; a saved key shows as ••••1234.</small></label>
-      <div class="row"><input id="tmdb_key" placeholder="v3 API key or v4 read access token" autocomplete="off" style="flex:1">
-        <button class="ghost" id="refreshMetaBtn" title="Fetch TMDB details again for every title">Refresh metadata</button></div>
-      <label>OpenSubtitles API key <small>— optional; when a film in English has foreign-language parts but no
-        subtitles for them, they're downloaded from <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener">OpenSubtitles.com</a>
-        (free account → API consumers → new consumer). 5 downloads a day; add your login for more.</small></label>
-      <input id="opensubtitles_key" placeholder="API key" autocomplete="off">
-      <div class="row">
-        <input id="opensubtitles_user" placeholder="OpenSubtitles username (optional)" autocomplete="off" style="flex:1">
-        <input id="opensubtitles_password" type="password" placeholder="password (optional)" autocomplete="new-password" style="flex:1">
+    <!-- ── spotify ── -->
+    <section class="tab" data-tab="Spotify">
+      <div class="card">
+        <h2>Spotify</h2>
+        <div id="spotifyState" class="muted">…</div>
+        <div id="spotifyConnect" hidden>
+          <p class="muted">Connect your Spotify account once; every Samedia app can then browse its playlists, search, and play on
+            any Spotify device (TVs, phones, speakers). Spotify plays in its own app on that device, so it needs to be
+            installed there; controlling playback needs Premium.</p>
+          <ol class="steps">
+            <li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify developer dashboard</a>,
+              sign in, <b>Create app</b>: any name, tick <b>Web API</b>, and add this Redirect URI:
+              <span class="copy"><span class="mono" id="redirectUri">http://127.0.0.1:8097/api/v1/spotify/callback</span><button class="ghost small" id="copyRedirect">Copy</button></span></li>
+            <li>Copy the app's <b>Client ID</b> here:
+              <div class="row" style="margin-top:6px"><input id="spotifyClient" class="grow mono" placeholder="Client ID"><button id="spotifyGo">Connect</button></div></li>
+            <li>Spotify opens in a new tab: agree. It then sends you to an address starting with <span class="mono">http://127.0.0.1</span>
+              that doesn't load — that's expected. Copy that whole address from the address bar and paste it here:
+              <div class="row" style="margin-top:6px"><input id="spotifyBack" class="grow mono" placeholder="http://127.0.0.1:8097/api/v1/spotify/callback?code=…"><button id="spotifyFinish">Finish</button></div></li>
+          </ol>
+          <p class="muted bad" id="spotifyErr"></p>
+        </div>
       </div>
-      <label>Rescan every (hours)</label>
-      <input id="scan_interval_hours" type="number" min="0.25" step="0.25" style="max-width:140px">
-      <label>Dolby Digital+ bitrate for converted DTS / TrueHD audio</label>
-      <input id="eac3_bitrate" style="max-width:140px">
-      <div class="check"><input type="checkbox" id="preextract_subs"><span>Pre-extract embedded subtitles during scans <small class="muted">(reads every file once; makes subtitles instant)</small></span></div>
-      <div class="row" style="margin-top:18px"><button id="saveBtn">Save settings</button><span class="muted" id="saveText"></span></div>
+      <div class="card" id="spotifyDevicesCard" hidden><h2>Spotify devices now</h2><div class="list" id="spotifyDevices"></div>
+        <p class="muted">A device shows up while Spotify is open on it.</p></div>
+    </section>
+
+    <!-- ── screens ── -->
+    <section class="tab" data-tab="Screens">
+      <div class="card">
+        <h2>Screens</h2>
+        <p class="muted">Every TV, phone and tablet that has connected. Choose the profiles each one offers, or lock it to one
+          profile that can only play music you've approved (e.g. a TV in a child's room).</p>
+        <div class="list" id="tvs"></div>
+        <div class="row" style="margin-top:12px"><span class="muted">New screens offer:</span><div id="newTvProfiles" class="row"></div></div>
+      </div>
+    </section>
+
+    <!-- ── profiles ── -->
+    <section class="tab" data-tab="Profiles">
+      <div class="card">
+        <h2>Profiles</h2>
+        <p class="muted">Who's watching and listening. Each profile has its own history, bookmarks and hidden titles.
+          Kids profiles only show titles rated G, PG, TV-Y, TV-Y7, TV-G or TV-PG.</p>
+        <div class="list" id="people"></div>
+        <div class="row" style="margin-top:12px">
+          <input id="newPerson" type="text" placeholder="New profile name" style="max-width:260px">
+          <label class="inline"><input type="checkbox" id="newPersonKids"> Kids</label>
+          <button class="small" id="addPerson">Add profile</button>
+          <span class="muted" id="peopleText"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── problems ── -->
+    <section class="tab" data-tab="Problems">
+      <div class="card">
+        <h2>Playback problems</h2>
+        <p class="muted">Titles a screen couldn't play, newest first. "Recovered" means it then played another way.</p>
+        <div class="list" id="problems"></div>
+      </div>
+    </section>
+
+    <!-- ── settings ── -->
+    <section class="tab" data-tab="Settings">
+      <div class="card">
+        <h2>Settings</h2>
+        <label>Server name <small>— shown in the apps</small></label>
+        <input id="server_name">
+        <label>PIN <small>— leave empty for no PIN (anyone on your network can browse)</small></label>
+        <input id="pinSetting" type="text" inputmode="numeric">
+        <label>TMDB API key <small>— optional; covers, plots, cast, age ratings (for kids profiles) and collections.
+          Stored only on this server; a saved key shows as ••••1234.</small></label>
+        <div class="row"><input id="tmdb_key" class="grow" placeholder="v3 API key or v4 read access token" autocomplete="off">
+          <button class="ghost" id="refreshMetaBtn" title="Fetch TMDB details again for every title">Refresh metadata</button></div>
+        <label>OpenSubtitles API key <small>— optional; when a film in English has foreign-language parts but no
+          subtitles for them, they're downloaded from <a href="https://www.opensubtitles.com/en/consumers" target="_blank" rel="noopener">OpenSubtitles.com</a>.</small></label>
+        <input id="opensubtitles_key" placeholder="API key" autocomplete="off">
+        <div class="row" style="margin-top:8px">
+          <input id="opensubtitles_user" class="grow" placeholder="OpenSubtitles username (optional)" autocomplete="off">
+          <input id="opensubtitles_password" class="grow" type="password" placeholder="password (optional)" autocomplete="new-password">
+        </div>
+        <label>Rescan every (hours)</label>
+        <input id="scan_interval_hours" type="number" min="0.25" step="0.25" style="max-width:140px">
+        <label>Dolby Digital+ bitrate for converted DTS / TrueHD audio</label>
+        <input id="eac3_bitrate" style="max-width:140px">
+        <div class="check"><input type="checkbox" id="preextract_subs"><span>Pre-extract embedded subtitles during scans <small class="muted">(reads every file once; makes subtitles instant)</small></span></div>
+        <div class="row" style="margin-top:18px"><button id="saveBtn">Save settings</button><span class="muted" id="saveText"></span></div>
+      </div>
     </section>
   </div>
 </main>
@@ -175,6 +268,8 @@ async function api(path, opts = {}) {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
   return res.json();
 }
+const put = (path, body) => api(path, { method: "PUT", body: JSON.stringify(body) });
+const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body || {}) });
 
 function showLogin() { $("login").style.display = "block"; $("app").style.display = "none"; }
 
@@ -185,11 +280,6 @@ $("loginBtn").onclick = async () => {
   $("login").style.display = "none"; start();
 };
 
-// ── profiles & TVs ────────────────────────────────────────────────
-let pickerFor = null;   // profile whose picture grid is open
-const COLORS = ["#5b8cff", "#ff6b6b", "#3ecf8e", "#ffb547", "#b46bff", "#33c3ff", "#ff7ac6", "#8a93a6"];
-let people = [];
-
 function el(tag, props = {}, kids = []) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -198,11 +288,153 @@ function el(tag, props = {}, kids = []) {
     else if (k === "style") Object.assign(n.style, v);
     else if (v !== false && v !== null && v !== undefined) n.setAttribute(k, v === true ? "" : v);
   }
-  for (const c of [].concat(kids)) if (c) n.appendChild(c);
+  for (const c of [].concat(kids)) if (c) n.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
   return n;
 }
+function note(id, text) { $(id).textContent = text; setTimeout(() => { if ($(id).textContent === text) $(id).textContent = ""; }, 3500); }
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 90) return "online now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " days ago";
+}
+const typing = () => document.activeElement && ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName);
 
-function note(id, text) { $(id).textContent = text; setTimeout(() => { if ($(id).textContent === text) $(id).textContent = ""; }, 3000); }
+// ── tabs ──────────────────────────────────────────────────────────
+const tabs = [...document.querySelectorAll("section.tab")];
+function show(name) {
+  tabs.forEach((t) => t.classList.toggle("on", t.dataset.tab === name));
+  [...$("tabs").children].forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+  try { localStorage.setItem("samedia_tab", name); } catch (e) {}
+  if (name === "Spotify") loadSpotify();
+  if (name === "Music") loadMusic();
+}
+$("tabs").replaceChildren(...tabs.map((t) => el("button", { "data-tab": t.dataset.tab, onclick: () => show(t.dataset.tab) }, [t.dataset.tab])));
+
+// ── overview ──────────────────────────────────────────────────────
+let settings = {};
+async function refresh() {
+  const s = await api("/api/v1/admin/status");
+  $("ver").textContent = "Server " + s.version;
+  $("nMovies").textContent = s.stats.movies; $("nShows").textContent = s.stats.shows;
+  $("nEps").textContent = s.stats.episodes; $("nStreams").textContent = s.streams;
+  if (s.music) { $("nAlbums").textContent = s.music.albums; $("nArtists").textContent = s.music.artists; $("nTracks").textContent = s.music.tracks; }
+  const sc = s.scan;
+  $("scanBtn").disabled = sc.running;
+  $("scanText").textContent = sc.running ? `${sc.phase}… ${sc.processed} / ${sc.found}` :
+    (sc.last_finished ? "Last scan " + new Date(sc.last_finished * 1000).toLocaleString() : "");
+  $("scanBar").style.width = sc.running && sc.found ? (100 * sc.processed / sc.found) + "%" : "0";
+  $("scanFile").textContent = sc.running && sc.current ? sc.current : (sc.last_error ? "Error: " + sc.last_error : "");
+  if (!typing()) renderFolders(s.roots);
+}
+$("scanBtn").onclick = async () => { await post("/api/v1/admin/scan"); refresh(); };
+
+async function loadOnNow() {
+  const p = await api("/api/v1/remote/players").catch(() => ({ players: [] }));
+  $("onNow").replaceChildren(...(p.players.length ? p.players.map((x) => el("div", {}, [
+    el("span", { class: "dot", style: { background: "var(--accent)" }, text: x.kind === "tv" ? "TV" : "📱" }),
+    el("b", { text: x.name }),
+    el("span", { class: "muted", text: x.now_playing ? (x.now_playing.playing ? "▶ " : "❚❚ ") + (x.now_playing.title || "") +
+      (x.now_playing.artist ? " — " + x.now_playing.artist : "") : "idle" }),
+  ])) : [el("p", { class: "muted", text: "No screen has Samedia open right now." })]));
+}
+
+// ── folders ───────────────────────────────────────────────────────
+const KINDS = [["auto", "Auto"], ["movies", "Movies"], ["shows", "TV Shows"], ["music", "Music"]];
+let roots = [];
+function renderFolders(status) {
+  roots = status || roots;
+  const reach = Object.fromEntries(roots.map((r) => [r.path, r.reachable]));
+  $("folders").replaceChildren(...(settings.media_roots || []).map((path) => {
+    const kind = el("select", {}, KINDS.map(([v, t]) => el("option", { value: v, text: t })));
+    kind.value = (settings.root_kinds || {})[path] || "auto";
+    kind.onchange = () => saveFolders({ ...(settings.root_kinds || {}), [path]: kind.value });
+    const remove = el("button", { class: "ghost small", text: "Remove", onclick: () => {
+      if (!confirm(`Stop scanning ${path}? Its titles leave the library (the files stay).`)) return;
+      const kinds = { ...(settings.root_kinds || {}) }; delete kinds[path];
+      saveFolders(kinds, settings.media_roots.filter((p) => p !== path));
+    } });
+    return el("div", {}, [el("span", { class: "mono grow", text: path }),
+      el("span", { class: reach[path] === false ? "bad" : "ok", text: reach[path] === false ? "not found" : "reachable" }), kind, remove]);
+  }));
+}
+async function saveFolders(kinds, list) {
+  const body = { root_kinds: Object.fromEntries(Object.entries(kinds).filter(([, v]) => v !== "auto")) };
+  if (list) body.media_roots = list;
+  try { settings = await put("/api/v1/admin/settings", body); note("foldersText", "Saved — scanning"); refresh(); }
+  catch (e) { alert(e.message); }
+  renderFolders();
+}
+$("addFolderBtn").onclick = () => {
+  const path = $("newFolder").value.trim();
+  if (!path || (settings.media_roots || []).includes(path)) return;
+  $("newFolder").value = ""; $("browser").hidden = true;
+  saveFolders(settings.root_kinds || {}, [...(settings.media_roots || []), path]);
+};
+async function browse(path) {
+  try {
+    const d = await api("/api/v1/admin/folders?path=" + encodeURIComponent(path));
+    $("newFolder").value = d.path;
+    $("browser").replaceChildren(...[d.parent ? el("div", { text: "⬆  ..", onclick: () => browse(d.parent) }) : null,
+      ...d.folders.map((f) => el("div", { text: "📁  " + f.name, onclick: () => browse(f.path) }))].filter(Boolean));
+    $("browser").hidden = false;
+  } catch (e) { if (path !== "/") browse("/"); else note("foldersText", e.message); }
+}
+$("browseBtn").onclick = () => browse($("newFolder").value.trim() || "/mnt");
+
+// ── music ─────────────────────────────────────────────────────────
+async function loadMusic() {
+  const m = await api("/api/v1/admin/music").catch(() => null);
+  if (!m) return;
+  $("mAlbums").textContent = m.albums; $("mArtists").textContent = m.artists; $("mTracks").textContent = m.tracks;
+  $("mNoArt").textContent = m.albums_without_art; $("mUntagged").textContent = m.untagged;
+  $("acoustidText").textContent = m.acoustid ? (m.fpcalc ? "Recognising untagged files during scans." :
+    "Saved, but this server has no fpcalc (Chromaprint) to listen with.") : "";
+}
+$("saveAcoustid").onclick = async () => {
+  const v = $("acoustid_key").value.trim();
+  if (v.startsWith("••••")) return;
+  try { settings = await put("/api/v1/admin/settings", { acoustid_key: v }); $("acoustid_key").value = settings.acoustid_key; note("acoustidText", "Saved — used on the next scan"); }
+  catch (e) { alert(e.message); }
+};
+
+// ── spotify ───────────────────────────────────────────────────────
+async function loadSpotify() {
+  let s;
+  try { s = await api("/api/v1/spotify/status"); } catch (e) { $("spotifyState").textContent = e.message; return; }
+  $("spotifyConnect").hidden = s.connected;
+  $("spotifyDevicesCard").hidden = !s.connected;
+  if (s.client_id) $("spotifyClient").value = s.client_id;
+  $("spotifyState").replaceChildren(...(s.connected ? [
+    el("span", { class: "ok", text: "Connected" }), ` as ${s.user}`, s.premium ? "" : el("span", { class: "warn", text: " · not Premium: browsing works, playing doesn't" }),
+    " ", el("button", { class: "ghost small", text: "Disconnect", onclick: async () => {
+      if (!confirm("Disconnect Spotify? Apps lose its playlists until you connect again.")) return;
+      await post("/api/v1/admin/spotify/disconnect"); loadSpotify(); } }),
+  ] : ["Not connected."]));
+  if (s.connected) {
+    const d = await api("/api/v1/spotify/devices").catch(() => ({ devices: [] }));
+    $("spotifyDevices").replaceChildren(...(d.devices.length ? d.devices.map((x) => el("div", {}, [el("b", { text: x.name }),
+      el("span", { class: "muted", text: (x.type || "") + (x.active ? " · playing" : "") })])) : [el("p", { class: "muted", text: "None right now." })]));
+  }
+}
+$("copyRedirect").onclick = () => navigator.clipboard && navigator.clipboard.writeText($("redirectUri").textContent);
+$("spotifyGo").onclick = async () => {
+  $("spotifyErr").textContent = "";
+  try { const r = await post("/api/v1/admin/spotify/connect", { client_id: $("spotifyClient").value.trim() });
+        $("redirectUri").textContent = r.redirect_uri; window.open(r.url, "_blank", "noopener"); }
+  catch (e) { $("spotifyErr").textContent = e.message; }
+};
+$("spotifyFinish").onclick = async () => {
+  $("spotifyErr").textContent = "";
+  try { await post("/api/v1/admin/spotify/finish", { url: $("spotifyBack").value.trim() }); $("spotifyBack").value = ""; loadSpotify(); }
+  catch (e) { $("spotifyErr").textContent = e.message; }
+};
+
+// ── profiles & screens ────────────────────────────────────────────
+let pickerFor = null, lockFor = null;
+const COLORS = ["#5b8cff", "#ff6b6b", "#3ecf8e", "#ffb547", "#b46bff", "#33c3ff", "#ff7ac6", "#8a93a6"];
+let people = [], avatars = [], albumsCache = null, artistsCache = null, playlistsCache = null;
 
 function profileChecks(selected, onChange) {
   // selected: null = all profiles
@@ -218,34 +450,19 @@ function profileChecks(selected, onChange) {
   });
   const emit = () => onChange(all.checked ? null : boxes.filter((b) => b.checked).map((b) => b.dataset.id));
   all.addEventListener("change", () => { boxes.forEach((b) => { b.disabled = all.checked; b.checked = true; }); emit(); });
-  // A TV always offers at least one profile
+  // A screen always offers at least one profile
   boxes.forEach((b) => b.addEventListener("change", () => {
     if (!boxes.some((x) => x.checked)) { b.checked = true; return; }
     emit();
   }));
-  wrap.appendChild(el("label", { class: "inline" }, [all, document.createTextNode("All profiles")]));
-  people.forEach((p, i) => wrap.appendChild(el("label", { class: "inline" }, [boxes[i], document.createTextNode(p.name), p.kids ? el("span", { class: "muted", text: " · kids" }) : null])));
+  wrap.appendChild(el("label", { class: "inline" }, [all, "All profiles"]));
+  people.forEach((p, i) => wrap.appendChild(el("label", { class: "inline" }, [boxes[i], p.name, p.kids ? el("span", { class: "muted", text: " · kids" }) : null])));
   return wrap;
 }
-
 async function saveDeviceProfiles(path, list) {
-  try {
-    await api(path, { method: "PUT", body: JSON.stringify(list === null ? { all_profiles: true } : { profiles: list }) });
-  } catch (e) { alert(e.message); }
+  try { await put(path, list === null ? { all_profiles: true } : { profiles: list }); } catch (e) { alert(e.message); }
   loadPeople();
 }
-
-function ago(ts) {
-  const s = Date.now() / 1000 - ts;
-  if (s < 90) return "online now";
-  if (s < 3600) return Math.round(s / 60) + " min ago";
-  if (s < 86400) return Math.round(s / 3600) + " h ago";
-  return Math.round(s / 86400) + " days ago";
-}
-
-let avatars = [];
-
-/** A button showing a profile picture, or the profile's initial on its color. */
 function picture(p, avatar, props) {
   const b = el("button", { type: "button", ...props, style: { background: p.color } });
   if (avatar) b.appendChild(el("img", { src: "avatars/" + avatar + ".svg", alt: avatar }));
@@ -253,20 +470,63 @@ function picture(p, avatar, props) {
   return b;
 }
 
+/** A checklist of things to approve, with a filter box. */
+function chooser(items, chosen, label) {
+  const set = new Set(chosen || []);
+  const filter = el("input", { placeholder: `Filter ${label}…` });
+  const box = el("div", { class: "pick" });
+  const draw = () => box.replaceChildren(...items.filter((i) => !filter.value || i.label.toLowerCase().includes(filter.value.toLowerCase()))
+    .slice(0, 300).map((i) => {
+      const c = el("input", { type: "checkbox" }); c.checked = set.has(i.id);
+      c.onchange = () => (c.checked ? set.add(i.id) : set.delete(i.id));
+      return el("label", {}, [c, i.label]);
+    }));
+  filter.oninput = draw; draw();
+  return { node: el("div", {}, [filter, box]), value: () => [...set] };
+}
+
+async function lockEditor(tv) {
+  albumsCache = albumsCache || (await api("/api/v1/music/albums?sort=artist").catch(() => ({ albums: [] }))).albums;
+  artistsCache = artistsCache || (await api("/api/v1/music/artists").catch(() => ({ artists: [] }))).artists;
+  if (playlistsCache === null) playlistsCache = (await api("/api/v1/spotify/playlists").catch(() => ({ playlists: [] }))).playlists;
+  const lock = tv.lock || { profile: people[0] && people[0].id, music_only: true, albums: [], artists: [], playlists: [] };
+  const prof = el("select", {}, people.map((p) => el("option", { value: p.id, text: p.name })));
+  prof.value = lock.profile;
+  const artistsPick = chooser(artistsCache.map((a) => ({ id: a.id, label: a.name })), lock.artists, "artists");
+  const albumsPick = chooser(albumsCache.map((a) => ({ id: a.id, label: `${a.artist} — ${a.title}` })), lock.albums, "albums");
+  const listsPick = chooser(playlistsCache.map((p) => ({ id: p.id, label: p.title })), lock.playlists, "playlists");
+  const save = el("button", { text: tv.lock ? "Save lock" : "Lock this screen", onclick: async () => {
+    try {
+      await put(`/api/v1/admin/devices/${encodeURIComponent(tv.id)}/lock`, { profile: prof.value, music_only: true,
+        artists: artistsPick.value(), albums: albumsPick.value(), playlists: listsPick.value() });
+      lockFor = null; loadPeople();
+    } catch (e) { alert(e.message); }
+  } });
+  const unlock = tv.lock && el("button", { class: "danger", text: "Unlock", onclick: async () => {
+    if (!confirm(`Unlock ${tv.name}? It gets all its profiles, films and music back.`)) return;
+    await api(`/api/v1/admin/devices/${encodeURIComponent(tv.id)}/lock`, { method: "DELETE" }); lockFor = null; loadPeople();
+  } });
+  return el("div", { class: "lockbox" }, [
+    el("div", { class: "row" }, [el("b", { text: "Locked to" }), prof, el("span", { class: "muted", text: "· music only: approved artists, albums and Spotify playlists" })]),
+    el("h3", { text: "Artists (all their albums)" }), artistsPick.node,
+    el("h3", { text: "Albums" }), albumsPick.node,
+    el("h3", { text: "Spotify playlists" }), playlistsCache.length ? listsPick.node : el("p", { class: "muted", text: "Connect Spotify (Spotify tab) to approve playlists." }),
+    el("div", { class: "row", style: { marginTop: "12px" } }, [save, unlock, el("button", { class: "ghost", text: "Cancel", onclick: () => { lockFor = null; loadPeople(); } })]),
+  ]);
+}
+
 async function loadPeople() {
   if (!avatars.length) avatars = (await api("/api/v1/avatars").catch(() => ({ avatars: [] }))).avatars;
   people = (await api("/api/v1/profiles?all=true")).profiles;
-  const box = $("people");
-  box.replaceChildren(...people.map((p) => {
-    const name = el("input", { type: "text", value: p.name, maxlength: 24 });
-    name.addEventListener("change", () => api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ name: name.value }) })
-      .then(() => { note("peopleText", "Saved"); loadPeople(); }, (e) => alert(e.message)));
+  $("people").replaceChildren(...people.map((p) => {
+    const name = el("input", { type: "text", value: p.name, maxlength: 24, class: "grow" });
+    name.addEventListener("change", () => put("/api/v1/profiles/" + p.id, { name: name.value }).then(() => { note("peopleText", "Saved"); loadPeople(); }, (e) => alert(e.message)));
     const kids = el("input", { type: "checkbox" }); kids.checked = p.kids;
-    kids.addEventListener("change", () => api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ kids: kids.checked }) }).then(loadPeople));
+    kids.addEventListener("change", () => put("/api/v1/profiles/" + p.id, { kids: kids.checked }).then(loadPeople));
     const color = el("select", {}, COLORS.map((c) => el("option", { value: c, text: "●  " + c, style: { color: c } })));
     color.value = COLORS.includes(p.color) ? p.color : COLORS[0];
-    color.addEventListener("change", () => api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ color: color.value }) }).then(loadPeople));
-    color.hidden = !!p.avatar;   // the color only shows behind the initial
+    color.addEventListener("change", () => put("/api/v1/profiles/" + p.id, { color: color.value }).then(loadPeople));
+    color.hidden = !!p.avatar;
     const del = el("button", { class: "ghost small", text: "Delete", disabled: people.length <= 1, onclick: async () => {
       if (!confirm(`Delete ${p.name}? Its watch history, bookmarks and hidden titles are removed.`)) return;
       try { await api("/api/v1/profiles/" + p.id, { method: "DELETE" }); } catch (e) { alert(e.message); }
@@ -274,38 +534,42 @@ async function loadPeople() {
     } });
     const pic = picture(p, p.avatar, { title: "Change picture", class: "pic" + (pickerFor === p.id ? " on" : ""),
       onclick: () => { pickerFor = pickerFor === p.id ? null : p.id; loadPeople(); } });
-    const choose = async (a) => {
-      pickerFor = null;
-      try { await api("/api/v1/profiles/" + p.id, { method: "PUT", body: JSON.stringify({ avatar: a }) }); } catch (e) { alert(e.message); }
-      loadPeople();
-    };
+    const choose = async (a) => { pickerFor = null; try { await put("/api/v1/profiles/" + p.id, { avatar: a }); } catch (e) { alert(e.message); } loadPeople(); };
     const grid = pickerFor === p.id && el("div", { class: "pics" }, [
       ...avatars.map((a) => picture(p, a, { title: a, class: "pic" + (p.avatar === a ? " on" : ""), onclick: () => choose(a) })),
       picture(p, "", { title: "Just the initial", class: "pic" + (!p.avatar ? " on" : ""), onclick: () => choose("") }),
     ]);
-    return el("div", { class: "person" }, [pic, name, el("label", { class: "inline" }, [kids, document.createTextNode("Kids")]), color, del, grid]);
+    return el("div", {}, [pic, name, el("label", { class: "inline" }, [kids, "Kids"]), color, del, grid]);
   }));
 
   const d = await api("/api/v1/admin/devices");
-  const tvs = $("tvs");
-  if (!d.devices.length) tvs.replaceChildren(el("p", { class: "muted", text: "No screen has connected yet." }));
-  else tvs.replaceChildren(...d.devices.map((tv) => {
-    const name = el("input", { type: "text", value: tv.name, maxlength: 60 });
-    name.addEventListener("change", () => api("/api/v1/admin/devices/" + encodeURIComponent(tv.id), { method: "PUT", body: JSON.stringify({ name: name.value }) }).then(loadPeople));
+  const nodes = [];
+  for (const tv of d.devices) {
+    const name = el("input", { type: "text", value: tv.name, maxlength: 60, class: "grow" });
+    name.addEventListener("change", () => put("/api/v1/admin/devices/" + encodeURIComponent(tv.id), { name: name.value }).then(loadPeople));
     const forget = el("button", { class: "ghost small", text: "Forget", onclick: async () => {
-      if (!confirm("Forget this TV? It reappears (with the default profiles) next time it connects.")) return;
+      if (!confirm("Forget this screen? It reappears (with the default profiles) next time it connects.")) return;
       await api("/api/v1/admin/devices/" + encodeURIComponent(tv.id), { method: "DELETE" }); loadPeople();
     } });
+    const lockBtn = el("button", { class: "ghost small", text: tv.lock ? "🔒 Locked…" : "Lock…", onclick: () => { lockFor = lockFor === tv.id ? null : tv.id; loadPeople(); } });
     const app = { tv: "Samsung TV", googletv: "Google TV", android: "Android", ios: "iPhone/iPad" }[tv.app] || "";
     const about = [tv.model, app && app + (tv.version ? " " + tv.version : ""), tv.online ? "on now" : ago(tv.last_seen)];
-    return el("div", { class: "tv" }, [el("span", { class: "dot", style: { background: tv.online ? "var(--accent)" : "var(--line)" }, text: tv.app === "ios" || tv.app === "android" ? "📱" : "TV" }), name,
-      el("span", { class: "muted", text: about.filter(Boolean).join(" · ") }), forget,
-      el("div", { class: "tv-profiles" }, [profileChecks(tv.profiles, (list) => saveDeviceProfiles("/api/v1/admin/devices/" + encodeURIComponent(tv.id), list))])]);
-  }));
+    const row = el("div", {}, [el("span", { class: "dot", style: { background: tv.online ? "var(--accent)" : "var(--line)" }, text: tv.app === "ios" || tv.app === "android" ? "📱" : "TV" }), name,
+      el("span", { class: "muted", text: about.filter(Boolean).join(" · ") }), lockBtn, forget,
+      tv.lock ? el("div", { class: "indent muted" }, ["🔒 Music only, as " + ((people.find((p) => p.id === tv.lock.profile) || {}).name || "?") +
+        ` · ${tv.lock.artists.length} artists, ${tv.lock.albums.length} albums, ${tv.lock.playlists.length} playlists`])
+        : el("div", { class: "indent" }, [profileChecks(tv.profiles, (list) => saveDeviceProfiles("/api/v1/admin/devices/" + encodeURIComponent(tv.id), list))])]);
+    if (lockFor === tv.id) row.appendChild(await lockEditor(tv));
+    nodes.push(row);
+  }
+  $("tvs").replaceChildren(...(nodes.length ? nodes : [el("p", { class: "muted", text: "No screen has connected yet." })]));
   $("newTvProfiles").replaceChildren(profileChecks(d.new_device_profiles, (list) => saveDeviceProfiles("/api/v1/admin/new-device-profiles", list)));
 
-  const ev = await api("/api/v1/admin/events?limit=30").catch(() => ({ events: [] }));
-  $("problems").replaceChildren(...(ev.events.length ? ev.events.map((e) => el("div", { class: "tv" }, [
+  const ev = await api("/api/v1/admin/events?limit=50").catch(() => ({ events: [] }));
+  const recent = ev.events.filter((e) => Date.now() / 1000 - e.at < 86400 && !e.recovered).length;
+  const tab = [...$("tabs").children].find((b) => b.dataset.tab === "Problems");
+  tab.replaceChildren(...["Problems", recent ? el("span", { class: "badge", text: String(recent) }) : null].filter(Boolean));
+  $("problems").replaceChildren(...(ev.events.length ? ev.events.map((e) => el("div", {}, [
     el("strong", { text: e.title || e.item_id || "?" }),
     el("span", { class: "muted", text: [e.device, e.mode, e.error, e.recovered ? "recovered" : "", ago(e.at)].filter(Boolean).join(" · ") }),
   ])) : [el("p", { class: "muted", text: "None so far." })]));
@@ -317,40 +581,24 @@ $("addPerson").onclick = async () => {
   const used = people.map((p) => p.color);
   const color = COLORS.find((c) => !used.includes(c)) || COLORS[people.length % COLORS.length];
   try {
-    await api("/api/v1/profiles", { method: "POST", body: JSON.stringify({ name, kids: $("newPersonKids").checked, color }) });
+    await post("/api/v1/profiles", { name, kids: $("newPersonKids").checked, color });
     $("newPerson").value = ""; $("newPersonKids").checked = false; note("peopleText", "Added " + name);
   } catch (e) { alert(e.message); }
   loadPeople();
 };
 
+// ── settings ──────────────────────────────────────────────────────
 async function loadSettings() {
-  const s = await api("/api/v1/admin/settings");
+  settings = await api("/api/v1/admin/settings");
+  const s = settings;
   $("server_name").value = s.server_name; $("pinSetting").value = s.pin; $("tmdb_key").value = s.tmdb_key;
   $("opensubtitles_key").value = s.opensubtitles_key || ""; $("opensubtitles_user").value = s.opensubtitles_user || "";
-  $("opensubtitles_password").value = s.opensubtitles_password || "";
+  $("opensubtitles_password").value = s.opensubtitles_password || ""; $("acoustid_key").value = s.acoustid_key || "";
   $("scan_interval_hours").value = s.scan_interval_hours; $("eac3_bitrate").value = s.eac3_bitrate;
-  $("preextract_subs").checked = s.preextract_subs; $("media_roots").value = s.media_roots.join("\n");
+  $("preextract_subs").checked = s.preextract_subs;
 }
-
-async function refresh() {
-  const s = await api("/api/v1/admin/status");
-  $("ver").textContent = "Version " + s.version;
-  $("nMovies").textContent = s.stats.movies; $("nShows").textContent = s.stats.shows;
-  $("nEps").textContent = s.stats.episodes; $("nStreams").textContent = s.streams;
-  $("nCols").textContent = s.stats.collections ?? "–";
-  $("roots").innerHTML = s.roots.map(r => `<div class="root"><span></span><span class="${r.reachable ? "ok" : "bad"}">${r.reachable ? "reachable" : "not found"}</span></div>`).join("");
-  [...$("roots").querySelectorAll(".root span:first-child")].forEach((el, i) => el.textContent = s.roots[i].path);
-  const sc = s.scan;
-  $("scanBtn").disabled = sc.running;
-  $("scanText").textContent = sc.running ? `${sc.phase}… ${sc.processed} / ${sc.found}` :
-    (sc.last_finished ? "Last scan " + new Date(sc.last_finished * 1000).toLocaleString() : "");
-  $("scanBar").style.width = sc.running && sc.found ? (100 * sc.processed / sc.found) + "%" : "0";
-  $("scanFile").textContent = sc.running && sc.current ? sc.current : (sc.last_error ? "Error: " + sc.last_error : "");
-}
-
-$("scanBtn").onclick = async () => { await api("/api/v1/admin/scan", { method: "POST" }); refresh(); };
 $("refreshMetaBtn").onclick = async () => {
-  try { await api("/api/v1/admin/refresh-metadata", { method: "POST" }); $("saveText").textContent = "Refreshing metadata…"; }
+  try { await post("/api/v1/admin/refresh-metadata"); $("saveText").textContent = "Refreshing metadata…"; }
   catch (e) { $("saveText").textContent = "Save a TMDB key first"; }
   refresh();
 };
@@ -361,11 +609,10 @@ $("saveBtn").onclick = async () => {
     opensubtitles_user: $("opensubtitles_user").value.trim(), opensubtitles_password: $("opensubtitles_password").value,
     scan_interval_hours: parseFloat($("scan_interval_hours").value) || 6,
     eac3_bitrate: $("eac3_bitrate").value.trim() || "640k", preextract_subs: $("preextract_subs").checked,
-    media_roots: $("media_roots").value.split("\n").map(s => s.trim()).filter(Boolean),
   };
   try {
-    await api("/api/v1/admin/settings", { method: "PUT", body: JSON.stringify(body) });
-    $("saveText").textContent = "Saved. Run a scan to pick up folder changes.";
+    settings = await put("/api/v1/admin/settings", body);
+    $("saveText").textContent = "Saved.";
     if (body.pin) { // the token changes with the PIN
       const r = await fetch("/api/v1/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: body.pin }) });
       token = (await r.json()).token; localStorage.setItem("samedia_token", token);
@@ -375,10 +622,14 @@ $("saveBtn").onclick = async () => {
 
 async function start() {
   try {
-    await loadSettings(); $("app").style.display = "block"; refresh(); loadPeople();
+    await loadSettings(); $("app").style.display = "block";
+    let first = "Overview"; try { first = localStorage.getItem("samedia_tab") || first; } catch (e) {}
+    show(tabs.some((t) => t.dataset.tab === first) ? first : "Overview");
+    refresh(); loadPeople(); loadOnNow();
     setInterval(() => refresh().catch(() => {}), 2000);
-    // Keep "last seen" fresh, but don't redraw while someone is typing
-    setInterval(() => { if (!pickerFor && (!document.activeElement || document.activeElement.tagName !== "INPUT")) loadPeople().catch(() => {}); }, 20000);
+    setInterval(() => loadOnNow().catch(() => {}), 5000);
+    // Keep "last seen" fresh, but don't redraw while someone is typing or editing a lock
+    setInterval(() => { if (!pickerFor && !lockFor && !typing()) loadPeople().catch(() => {}); }, 20000);
   }
   catch (e) { if (e.message !== "auth") alert(e.message); }
 }

@@ -21,6 +21,7 @@ ITEM_COLS = ("i.id, i.kind, i.title, i.year, i.show_id, i.season, i.episode, i.e
              "i.rating, i.genres, i.poster, i.backdrop, i.thumb, i.duration, i.media, i.added_at, "
              "i.certification, i.collection_id, i.director, i.cast_members, "
              "p.position, p.watched, p.play_count, p.updated_at AS progress_at, "
+             "i.scene, i.logo, s.scene AS show_scene, s.logo AS show_logo, "
              "s.title AS show_title, s.poster AS show_poster, s.backdrop AS show_backdrop, "
              "s.certification AS show_certification")
 ITEM_FROM = ("items i LEFT JOIN progress p ON p.item_id = i.id AND p.profile_id = :pid "
@@ -82,6 +83,9 @@ def item_summary(r: dict) -> dict:
         "poster": _art(r["id"], r.get("poster"), "poster") or (_art(r["show_id"], r.get("show_poster"), "poster") if is_ep else None),
         "backdrop": _art(r["id"], r.get("backdrop"), "backdrop") or (_art(r["show_id"], r.get("show_backdrop"), "backdrop") if is_ep else None),
         "thumb": _art(r["id"], r.get("thumb"), "thumb"),
+        # title card: a scene other than the backdrop, and the title's logo
+        "scene": _art(r["id"], r.get("scene"), "scene") or (_art(r["show_id"], r.get("show_scene"), "scene") if is_ep else None),
+        "logo": _art(r["id"], r.get("logo"), "logo") or (_art(r["show_id"], r.get("show_logo"), "logo") if is_ep else None),
         "position": r.get("position") or 0,
         "watched": bool(r.get("watched")),
         "badges": badges(r.get("media")),
@@ -107,6 +111,8 @@ def show_summary(r: dict) -> dict:
         "rating": r.get("rating"), "genres": r.get("genres") or [],
         "poster": _art(r["id"], r.get("poster"), "poster"),
         "backdrop": _art(r["id"], r.get("backdrop"), "backdrop"),
+        "scene": _art(r["id"], r.get("scene"), "scene"),
+        "logo": _art(r["id"], r.get("logo"), "logo"),
         "episode_count": r.get("episode_count"), "unwatched": r.get("unwatched"),
         "added_at": r.get("last_added") or r.get("added_at"),
         "certification": r.get("certification"),
