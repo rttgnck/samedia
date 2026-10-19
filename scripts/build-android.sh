@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds Samedia for Android and installs it on a connected (USB or Wi-Fi debugging) phone.
+# Builds Samedia for Android and installs it on a connected (USB or Wi-Fi debugging) phone or
+# Google TV (Chromecast with Google TV etc.; Developer options > USB debugging).
 #
 #   scripts/build-android.sh [device serial]
 #
@@ -21,5 +22,10 @@ command -v adb >/dev/null && ADB=adb
 SERIAL=${1:-$("$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}')}
 [ -n "$SERIAL" ] || { echo "No phone connected: plug one in with USB debugging on (or pair Wireless debugging), or copy the APK over."; exit 0; }
 "$ADB" -s "$SERIAL" install -r "$APK"
-"$ADB" -s "$SERIAL" shell am start -n io.samedia.player/.MainActivity >/dev/null
+# Google TV opens the TV interface, phones the phone one
+if "$ADB" -s "$SERIAL" shell pm has-feature android.software.leanback | grep -q true; then
+  "$ADB" -s "$SERIAL" shell am start -n io.samedia.player/.tv.TvActivity >/dev/null
+else
+  "$ADB" -s "$SERIAL" shell am start -n io.samedia.player/.MainActivity >/dev/null
+fi
 echo "Installed on $SERIAL"

@@ -7,7 +7,9 @@
  *   on(event, fn)                  'time' | 'buffering' | 'ready' | 'ended' | 'error'
  *
  * AVPlayBackend drives Samsung's native player (hardware decode, HDR10/HDR10+, 4K, all
- * containers). HTML5Backend is a <video> fallback so the UI can be developed in a browser.
+ * containers). NativeBackend drives the Android shell's player (Google TV), which also sits
+ * under a transparent page. HTML5Backend is a <video> fallback so the UI can be developed in
+ * a browser.
  */
 (function () {
   'use strict';
@@ -228,6 +230,75 @@
   AVPlayBackend.prototype.suspend = function () { try { this.av.suspend(); } catch (e) {} };
   AVPlayBackend.prototype.restore = function () { try { this.av.restore(); } catch (e) {} };
 
+  // ── Android (Samedia for Google TV): the app's own player under the page ──
+  // Calls go to window.SamediaNative; the player answers through window.SamediaNativeEvent.
+
+  function NativeBackend(bridge) {
+    Emitter.call(this);
+    this.n = bridge;
+    this._t = 0;
+    this._playing = false;
+    this._open = null;
+    this._seek = null;
+    NativeBackend.current = this;
+    window.SamediaNativeEvent = function (name, arg) {
+      if (NativeBackend.current) NativeBackend.current._event(name, arg);
+    };
+  }
+  NativeBackend.prototype = Object.create(Emitter.prototype);
+
+  NativeBackend.prototype._event = function (name, arg) {
+    var pending;
+    switch (name) {
+      case 'time': this._t = arg; this.emit('time', arg); break;
+      case 'playing': this._playing = !!arg; break;
+      case 'buffering': this.emit('buffering', !!arg); break;
+      case 'ended': this.emit('ended'); break;
+      case 'seeked': pending = this._seek; this._seek = null; if (pending) pending(); break;
+      case 'ready':
+        pending = this._open; this._open = null;
+        if (pending) pending.resolve();
+        this.emit('ready');
+        break;
+      case 'error':
+        pending = this._open; this._open = null;
+        if (pending) pending.reject(new Error(String(arg)));
+        else this.emit('error', new Error(String(arg)));
+        break;
+    }
+  };
+
+  NativeBackend.prototype.open = function (url, opts) {
+    var self = this;
+    return new Promise(function (resolve, reject) {
+      self._open = { resolve: resolve, reject: reject };
+      self._t = 0;
+      self.n.open(url, JSON.stringify(opts || {}));
+    });
+  };
+  NativeBackend.prototype.setDisplayMode = function (mode) { this.n.setDisplayMode(mode || 'fit'); return true; };
+  NativeBackend.prototype.play = function () { this.n.play(); };
+  NativeBackend.prototype.pause = function () { this.n.pause(); };
+  NativeBackend.prototype.isPlaying = function () { return this._playing; };
+  NativeBackend.prototype.seek = function (sec) {
+    var self = this;
+    this._t = sec;
+    return new Promise(function (resolve) {
+      self._seek = resolve;
+      setTimeout(function () { if (self._seek === resolve) { self._seek = null; resolve(); } }, 8000);
+      self.n.seek(Math.round(sec * 1000));
+    });
+  };
+  NativeBackend.prototype.time = function () { return this._t; };
+  NativeBackend.prototype.state = function () { return this.n.state(); };
+  NativeBackend.prototype.selectAudio = function (ordinal) { return this.n.selectAudio(ordinal); };
+  NativeBackend.prototype.stop = function () {
+    if (NativeBackend.current === this) NativeBackend.current = null;
+    this.n.stop();
+  };
+  NativeBackend.prototype.suspend = function () { this.n.pause(); };
+  NativeBackend.prototype.restore = function () {};
+
   // ── HTML5 <video> (development in a desktop browser) ────────────
 
   function HTML5Backend(videoEl) {
@@ -282,6 +353,7 @@
 
   SM.backends = {
     create: function (mount) {
+      if (SM.util.native) return new NativeBackend(SM.util.native);
       if (SM.util.isTizen && window.webapis && webapis.avplay) {
         var obj = document.createElement('object');
         obj.setAttribute('type', 'application/avplayer');

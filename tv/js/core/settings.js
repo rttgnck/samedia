@@ -63,12 +63,17 @@
     if (state.capDTS) audio.push('dts');
     var video = ['h264', 'hevc', 'vp9', 'mpeg2video', 'mpeg4', 'vc1'];
     if (state.capAV1) video.push('av1');
+    if (SM.util.native) {
+      try { return JSON.parse(SM.util.native.capabilities()); } catch (e) { /* fall through */ }
+    }
     if (!SM.util.isTizen) {
       // Desktop browser (development): only what Chrome's <video> handles.
       return { containers: ['mp4', 'webm', 'mkv'], video: ['h264', 'vp9', 'av1'], audio: ['aac', 'mp3', 'opus', 'flac', 'vorbis'],
                dolby_vision: false, max_width: 3840 };
     }
+    // In HLS segments (MPEG-TS) the TV takes only these; anything else comes re-encoded there
     return { containers: ['mkv', 'mp4', 'webm', 'ts', 'avi', 'mpeg'], video: video, audio: audio,
+             hls_video: ['h264', 'hevc', 'mpeg2video'], ts_video: ['h264', 'hevc', 'mpeg2video'],
              dolby_vision: false, max_width: 3840 };
   }
 

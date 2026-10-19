@@ -1,0 +1,12 @@
+{
+  "name": "samedia",
+  "private": true,
+  "description": "Build and update Samedia on every screen (no dependencies: Node 18+)",
+  "type": "module",
+  "scripts": {
+    "updater": "node scripts/updater.mjs",
+    "build": "node scripts/release.mjs build",
+    "version": "node scripts/release.mjs version"
+  },
+  "engines": { "node": ">=18" }
+}

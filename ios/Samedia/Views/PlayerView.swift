@@ -138,7 +138,9 @@ final class PlayerCoordinator: NSObject {
                                         "session": session, "prefer_audio_lang": language,
                                         "subtitle_language": language],
                                        as: PlaybackDecision.self)
+            decision = d
             guard d.mode == "direct" || d.mode == "hls" else {
+                reportError("needs \(d.mode), which this app can't play")
                 alert("Can't play this here",
                       "This video has to be converted on the server, which iPhone and iPad can't play yet.")
                 return
@@ -174,6 +176,7 @@ final class PlayerCoordinator: NSObject {
             }
             await showSubtitles(d, language: language, api: api)
         } catch {
+            reportError(error.localizedDescription)
             close(report: false)
             alert("Playback failed", error.localizedDescription)
         }
@@ -219,7 +222,10 @@ final class PlayerCoordinator: NSObject {
             .store(in: &cancellables)
         playerItem.publisher(for: \.status)
             .sink { [weak self] status in
-                if status == .failed { self?.alert("Playback stopped", playerItem.error?.localizedDescription ?? "") }
+                if status == .failed {
+                    self?.reportError(playerItem.error?.localizedDescription ?? "failed")
+                    self?.alert("Playback stopped", playerItem.error?.localizedDescription ?? "")
+                }
             }
             .store(in: &cancellables)
         observers.append(NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: playerItem,
@@ -229,6 +235,14 @@ final class PlayerCoordinator: NSObject {
                 self?.controller?.dismiss(animated: true)
             }
         })
+    }
+
+    /// Tell the server, so a title that failed can be found later (admin page).
+    private func reportError(_ message: String) {
+        guard let item, let api = model?.api else { return }
+        var body: [String: Any] = ["kind": "playback_error", "item_id": item.id, "error": String(message.prefix(300))]
+        if let decision { body["mode"] = decision.mode }
+        Task { try? await api.postIgnoringReply("/api/v1/events", body) }
     }
 
     /// Tell the server where we are (it marks the title watched near the end).

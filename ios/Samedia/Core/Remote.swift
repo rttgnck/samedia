@@ -59,6 +59,7 @@ final class RemoteLink {
             URLQueryItem(name: "device", value: APIClient.deviceID),
             URLQueryItem(name: "name", value: APIClient.deviceName),
             URLQueryItem(name: "kind", value: "ios"),
+            URLQueryItem(name: "app", value: APIClient.appTag),
         ])
         if var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             c.scheme = c.scheme == "https" ? "wss" : "ws"

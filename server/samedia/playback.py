@@ -157,14 +157,28 @@ def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, sta
     # HLS (segments of the untouched video) when the player asks for it and can take this
     # video inside MPEG-TS segments (iPhone/iPad can't take HEVC there)
     hls_ok = bool(video) and video_ok and video["codec"] in caps.get("hls_video", caps["video"])
+    # ...or segments with the picture re-encoded to H.264, for video the player can't take in
+    # them (XviD on a TV, VC-1 or 1080p HEVC on an iPad), while small enough for the server
+    hls_h264 = (bool(video) and not hls_ok and (video.get("width") or 0) <= 1920
+                and "h264" in caps.get("hls_video", caps["video"]))
+    vcodec = "copy"
     if force == "hls" and not hls_ok:
-        force = None if container_ok and audio_ok and video_ok else "transcode"
-        reasons.append("segments not possible for this video")
+        if hls_h264:
+            vcodec = "h264"
+            reasons.append(f"video {video['codec']} re-encoded to H.264 in segments")
+        else:
+            force = None if container_ok and audio_ok and video_ok else "transcode"
+            reasons.append("segments not possible for this video")
 
-    if force == "transcode" or not video_ok:
-        mode = "transcode"
-    elif force == "hls":
+    if force == "hls":
         mode = "hls"
+    elif force == "transcode" or not video_ok:
+        # players that take segments get them re-encoded (seekable) rather than one long stream
+        if force != "transcode" and caps.get("prefer_hls") and hls_h264:
+            mode, vcodec = "hls", "h264"
+            reasons.append(f"video {video['codec']} re-encoded to H.264 in segments")
+        else:
+            mode = "transcode"
     elif force == "remux" or not (container_ok and audio_ok):
         # players that seek well in segments (iPhone/iPad) get those rather than a one-way stream
         mode = "hls" if caps.get("prefer_hls") and hls_ok and force != "remux" else "remux"
@@ -172,8 +186,12 @@ def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, sta
         mode = "direct"
     # MPEG-TS output must carry a video codec the player takes there (Apple: H.264 only)
     if mode == "remux" and video and video["codec"] not in caps.get("ts_video", caps["video"]):
-        mode = "transcode"
-        reasons.append(f"video {video['codec']} not supported in a stream")
+        if caps.get("prefer_hls") and hls_h264:
+            mode, vcodec = "hls", "h264"
+            reasons.append(f"video {video['codec']} re-encoded to H.264 in segments")
+        else:
+            mode = "transcode"
+            reasons.append(f"video {video['codec']} not supported in a stream")
     if force:
         reasons.append(f"forced {force}")
 
@@ -200,7 +218,7 @@ def decide(item: dict, caps: dict | None, *, audio_index: int | None = None, sta
 
     if mode == "hls":
         audio_param = result["audio_index"] if chosen else -1
-        result.update(url=f"/api/v1/hls/{token}/{item['id']}/{session}/{audio_param}/{acodec}/index.m3u8",
+        result.update(url=f"/api/v1/hls/{token}/{item['id']}/{session}/{audio_param}/{acodec}/{vcodec}/index.m3u8",
                       start_offset=0, seekable=True, mime="application/vnd.apple.mpegurl")
         if acodec == "eac3" and chosen:
             result["warnings"].append(f"Converting {_audio_label(chosen)} audio to Dolby Digital+ 5.1 for the TV.")

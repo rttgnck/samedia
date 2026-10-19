@@ -13,7 +13,7 @@
     var base = SM.api.base();
     if (!base) return null;
     var q = 'device=' + encodeURIComponent(SM.api.deviceId()) + '&name=' + encodeURIComponent(SM.api.deviceName()) + '&kind=tv' +
-            '&can=keys' + (audio() ? ',volume' : '');
+            '&can=keys' + (audio() ? ',volume' : '') + '&app=' + encodeURIComponent(SM.api.appTag());
     if (S.get('token')) q += '&t=' + encodeURIComponent(S.get('token'));
     return base.replace(/^http/, 'ws') + '/api/v1/remote/ws?' + q;
   }
@@ -68,11 +68,17 @@
   }
 
   function audio() {
+    if (SM.util.native) return SM.util.native.canVolume() ? SM.util.native : null;
     return window.tizen && tizen.tvaudiocontrol ? tizen.tvaudiocontrol : null;
   }
 
   /** The TV's own volume, from a phone. */
   function volume(key) {
+    if (SM.util.native) {
+      var said = SM.util.native.volume(key);
+      if (said) ui.toast(said);
+      return;
+    }
     var a = audio();
     if (!a) return;
     try {

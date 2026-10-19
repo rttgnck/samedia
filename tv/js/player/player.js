@@ -193,9 +193,19 @@
       }).catch(function (err) { if (err !== 'restarted') onError(err); });
     }
 
+    /** Tell the server, so a title that failed can be found later (admin page). */
+    function reportError(err, recovered) {
+      SM.api.post('/api/v1/events', {
+        kind: 'playback_error', item_id: item.id, mode: decision && decision.mode,
+        error: String(err && err.message || err || 'unknown').slice(0, 300),
+        reasons: decision && decision.reasons, position: Math.round(now()), recovered: !!recovered,
+      }).catch(function () { /* an older server */ });
+    }
+
     function onError(err) {
       if (destroyed) return;
       var pos = Math.max(0, now() - 2);
+      reportError(err, !retried && decision && (decision.mode === 'direct' || decision.mode === 'hls'));
       if (decision && decision.mode === 'direct' && !retried) {
         // The TV refused the original file: retry with the server converting audio/container.
         retried = true;

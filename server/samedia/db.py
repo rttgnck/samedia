@@ -180,7 +180,25 @@ def next_avatar() -> str:
     return min(AVATARS, key=lambda a: (used.count(a), AVATARS.index(a)))
 
 
-MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4]
+def _migrate_5(conn: sqlite3.Connection) -> None:
+    """Which app and version each device runs and where it is (for the updater), and a short
+    log of what went wrong when playing (for finding the title later)."""
+    _add_column(conn, "devices", "app", "TEXT")          # tv | googletv | android | ios
+    _add_column(conn, "devices", "version", "TEXT")
+    _add_column(conn, "devices", "address", "TEXT")      # its LAN address, as the server saw it
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            at REAL NOT NULL,
+            device_id TEXT,
+            kind TEXT NOT NULL,       -- playback_error
+            item_id TEXT,
+            title TEXT,
+            detail TEXT               -- JSON: mode, error, reasons, position, recovered
+        )""")
+
+
+MIGRATIONS = [_migrate_1, _migrate_2, _migrate_3, _migrate_4, _migrate_5]
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

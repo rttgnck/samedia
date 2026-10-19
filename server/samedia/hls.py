@@ -442,26 +442,38 @@ class Job:
 
 
 def build_cmd(path: str, starts: list[float], n: int, video_index: int, audio_index: int,
-              acodec: str, channels: int, out_dir: Path) -> list[str]:
+              acodec: str, channels: int, out_dir: Path, vcodec: str = "copy") -> list[str]:
     """ffmpeg making segments n.. of a file.
 
     The job's own timeline starts at 0 at segment n (seek to just past its keyframe, shift back
     by the same amount), because the segment muxer reads -segment_times relative to the start in
     some ffmpeg versions and as absolute times in others (5.1, in the image). Its -initial_offset,
     applied after the cut decisions, then puts every packet at the file's own time + TS_OFFSET.
+
+    vcodec "h264": the picture is re-encoded (video the player can't take in segments, e.g. XviD
+    on a TV, VC-1 on an iPad), with a keyframe forced at every segment boundary. Decoding makes
+    the seek exact, so no nudge is needed.
     """
+    transcode = vcodec == "h264"
+    nudge = 0.0 if transcode else SEEK_NUDGE
     cmd = [config.ffmpeg, "-nostdin", "-v", "error", "-fflags", "+genpts", "-seek_timestamp", "1",
-           "-ss", f"{starts[n] + SEEK_NUDGE:.3f}", "-i", path, "-map", f"0:{video_index}"]
+           "-ss", f"{starts[n] + nudge:.3f}", "-i", path, "-map", f"0:{video_index}"]
     if audio_index >= 0:
         cmd += ["-map", f"0:{audio_index}"]
-    cmd += ["-c:v", "copy"]
+    if transcode:
+        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p",
+                "-vf", "scale='min(1920,iw)':-2", "-forced-idr", "1",
+                # a hair early: the frame on the boundary itself must become the keyframe
+                "-force_key_frames", ",".join(["0"] + [f"{s - starts[n] - 0.002:.3f}" for s in starts[n + 1:]])]
+    else:
+        cmd += ["-c:v", "copy"]
     if audio_index >= 0:
         if acodec == "eac3":
             cmd += ["-c:a", "eac3", "-b:a", config.eac3_bitrate, "-ac", str(channels)]
         else:
             cmd += ["-c:a", "copy"]
     cuts = [s - starts[n] - CUT_MARGIN for s in starts[n + 1:]]
-    cmd += ["-sn", "-dn", "-output_ts_offset", f"{SEEK_NUDGE}", "-avoid_negative_ts", "disabled",
+    cmd += ["-sn", "-dn", "-output_ts_offset", f"{nudge}", "-avoid_negative_ts", "disabled",
             "-max_muxing_queue_size", "4096", "-muxdelay", "0",
             # each segment is a new MPEG-TS muxer, so continuity counters restart: flag it, or
             # players treat the last frame before every segment boundary as corrupt
@@ -485,7 +497,8 @@ class Manager:
         self.reaper: asyncio.Task | None = None
 
     async def segment(self, session: str, params: tuple, item: dict, starts: list[float], n: int,
-                      audio_index: int, acodec: str, channels: int, timeout: float = 45) -> Path | None:
+                      audio_index: int, acodec: str, channels: int, timeout: float = 45,
+                      vcodec: str = "copy") -> Path | None:
         """Path of segment n (made now if needed), or None if it couldn't be made."""
         async with self.lock:
             job = self.jobs.get(session)
@@ -496,7 +509,7 @@ class Manager:
                     await job.stop()
                 job = Job(session, params, n)
                 cmd = build_cmd(item["path"], starts, n, item["media"]["video"]["index"], audio_index,
-                                acodec, channels, job.dir)
+                                acodec, channels, job.dir, vcodec)
                 log.info("hls %s: segments from %d (%.1fs)", session, n, starts[n])
                 log.debug("hls %s: %s", session, " ".join(cmd))
                 job.proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.DEVNULL,

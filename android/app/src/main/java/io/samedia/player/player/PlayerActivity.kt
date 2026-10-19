@@ -243,6 +243,7 @@ class PlayerActivity : ComponentActivity(), PlayerController {
             } catch (e: Exception) {
                 loading = false
                 error = e.message ?: "Playback failed"
+                reportError(error ?: "Playback failed")
             }
         }
     }
@@ -268,6 +269,24 @@ class PlayerActivity : ComponentActivity(), PlayerController {
                 api.postIgnoringReply("/api/v1/items/${item.id}/progress", buildJsonObject {
                     put("position", at)
                     put("duration", total)
+                })
+            }
+        }
+    }
+
+    /** Tell the server, so a title that failed can be found later (admin page). */
+    private fun reportError(message: String) {
+        val item = item ?: return
+        val api = model.api ?: return
+        val d = decision
+        model.scope.launch {
+            runCatching {
+                api.postIgnoringReply("/api/v1/events", buildJsonObject {
+                    put("kind", "playback_error")
+                    put("item_id", item.id)
+                    d?.let { put("mode", it.mode) }
+                    put("error", message.take(300))
+                    put("position", position)
                 })
             }
         }
@@ -315,6 +334,7 @@ class PlayerActivity : ComponentActivity(), PlayerController {
         override fun onPlayerError(e: PlaybackException) {
             loading = false
             error = e.cause?.message?.let { "${e.errorCodeName}: $it" } ?: e.errorCodeName
+            reportError(error ?: e.errorCodeName)
         }
 
         override fun onTracksChanged(tracks: Tracks) {

@@ -34,6 +34,14 @@ final class APIClient {
         return id
     }()
 
+    /** "ios/0.9.0+412": this build, for the server's list of screens (and the updater). */
+    static let appTag: String = {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "0"
+        let build = info["CFBundleVersion"] as? String ?? ""
+        return "ios/" + version + (build.isEmpty || build == "1" ? "" : "+" + build)
+    }()
+
     @MainActor static var deviceName: String {
         UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
     }
@@ -70,6 +78,7 @@ final class APIClient {
         req.setValue(Self.deviceID, forHTTPHeaderField: "X-Samedia-Device")
         req.setValue(Self.deviceName.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
                      forHTTPHeaderField: "X-Samedia-Device-Name")
+        req.setValue(Self.appTag, forHTTPHeaderField: "X-Samedia-App")
         if let profileID { req.setValue(profileID, forHTTPHeaderField: "X-Samedia-Profile") }
         if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let body {

@@ -97,13 +97,19 @@
     </section>
 
     <section class="card">
-      <h2>TVs</h2>
-      <p class="muted">Every TV that has connected. Choose which profiles each TV offers — e.g. only Kids in a child's room.</p>
+      <h2>Screens</h2>
+      <p class="muted">Every TV, phone and tablet that has connected, with the Samedia version it runs. Choose which profiles each one offers — e.g. only Kids in a child's room.</p>
       <div id="tvs"></div>
       <div class="row" style="margin-top:12px">
-        <span class="muted">New TVs offer:</span>
+        <span class="muted">New screens offer:</span>
         <div id="newTvProfiles" class="row"></div>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>Playback problems</h2>
+      <p class="muted">Titles a screen couldn't play, newest first. "Recovered" means it then played another way.</p>
+      <div id="problems"></div>
     </section>
 
     <section class="card">
@@ -282,7 +288,7 @@ async function loadPeople() {
 
   const d = await api("/api/v1/admin/devices");
   const tvs = $("tvs");
-  if (!d.devices.length) tvs.replaceChildren(el("p", { class: "muted", text: "No TV has connected yet." }));
+  if (!d.devices.length) tvs.replaceChildren(el("p", { class: "muted", text: "No screen has connected yet." }));
   else tvs.replaceChildren(...d.devices.map((tv) => {
     const name = el("input", { type: "text", value: tv.name, maxlength: 60 });
     name.addEventListener("change", () => api("/api/v1/admin/devices/" + encodeURIComponent(tv.id), { method: "PUT", body: JSON.stringify({ name: name.value }) }).then(loadPeople));
@@ -290,11 +296,19 @@ async function loadPeople() {
       if (!confirm("Forget this TV? It reappears (with the default profiles) next time it connects.")) return;
       await api("/api/v1/admin/devices/" + encodeURIComponent(tv.id), { method: "DELETE" }); loadPeople();
     } });
-    return el("div", { class: "tv" }, [el("span", { class: "dot", style: { background: "var(--line)" }, text: "TV" }), name,
-      el("span", { class: "muted", text: (tv.model ? tv.model + " · " : "") + ago(tv.last_seen) }), forget,
+    const app = { tv: "Samsung TV", googletv: "Google TV", android: "Android", ios: "iPhone/iPad" }[tv.app] || "";
+    const about = [tv.model, app && app + (tv.version ? " " + tv.version : ""), tv.online ? "on now" : ago(tv.last_seen)];
+    return el("div", { class: "tv" }, [el("span", { class: "dot", style: { background: tv.online ? "var(--accent)" : "var(--line)" }, text: tv.app === "ios" || tv.app === "android" ? "📱" : "TV" }), name,
+      el("span", { class: "muted", text: about.filter(Boolean).join(" · ") }), forget,
       el("div", { class: "tv-profiles" }, [profileChecks(tv.profiles, (list) => saveDeviceProfiles("/api/v1/admin/devices/" + encodeURIComponent(tv.id), list))])]);
   }));
   $("newTvProfiles").replaceChildren(profileChecks(d.new_device_profiles, (list) => saveDeviceProfiles("/api/v1/admin/new-device-profiles", list)));
+
+  const ev = await api("/api/v1/admin/events?limit=30").catch(() => ({ events: [] }));
+  $("problems").replaceChildren(...(ev.events.length ? ev.events.map((e) => el("div", { class: "tv" }, [
+    el("strong", { text: e.title || e.item_id || "?" }),
+    el("span", { class: "muted", text: [e.device, e.mode, e.error, e.recovered ? "recovered" : "", ago(e.at)].filter(Boolean).join(" · ") }),
+  ])) : [el("p", { class: "muted", text: "None so far." })]));
 }
 
 $("addPerson").onclick = async () => {

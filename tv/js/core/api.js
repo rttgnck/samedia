@@ -28,6 +28,11 @@
   function deviceId() {
     var id = S.get('deviceId');
     if (id) return id;
+    if (SM.util.native) {
+      id = SM.util.native.deviceId();               // random, kept by the Android app
+      S.set('deviceId', id);
+      return id;
+    }
     var hw = '';
     try { hw = webapis.productinfo.getDuid() || ''; } catch (e) { /* not a Samsung TV */ }
     // Hashed so the server never stores the TV's hardware id; stable across reinstalls
@@ -37,8 +42,14 @@
   }
 
   var deviceName = (function () {
+    if (SM.util.native) return SM.util.native.deviceName();
     try { return 'Samsung ' + webapis.productinfo.getRealModel(); } catch (e) { return SM.util.isTizen ? 'Samsung TV' : 'Browser'; }
   })();
+
+  /** Which app and version this is ("tv/0.9.0"; "googletv/…" in the Android shell), for the server's list. */
+  function appTag() {
+    return SM.util.native ? 'googletv/' + SM.util.native.appVersion() : 'tv/' + (window.SM_BUILD || SM.VERSION);
+  }
 
   function withToken(url) {
     var t = S.get('token');
@@ -60,6 +71,7 @@
     if (S.get('profileId')) headers['X-Samedia-Profile'] = S.get('profileId');
     headers['X-Samedia-Device'] = deviceId();
     headers['X-Samedia-Device-Name'] = encodeURIComponent(deviceName);
+    headers['X-Samedia-App'] = appTag();
     var url = (opts.base !== undefined ? opts.base : base()) + path;
     return fetch(url, {
       method: method, headers: headers, signal: ctrl ? ctrl.signal : undefined,
@@ -122,6 +134,10 @@
   /** The TV's own IPv4 address: Samsung webapis first, then Tizen system info (wired, Wi-Fi). */
   function localIp() {
     var ip = null;
+    if (SM.util.native) {
+      ip = SM.util.native.localIp();
+      return Promise.resolve(usable(ip) ? { ip: ip, source: 'android' } : { ip: null, source: null });
+    }
     try { ip = webapis.network.getIp(); } catch (e) { /* not on a TV, or webapis unavailable */ }
     if (usable(ip)) return Promise.resolve({ ip: ip, source: 'webapis' });
     return systemInfoIp('ETHERNET_NETWORK').then(function (eth) {
@@ -167,7 +183,7 @@
   }
 
   SM.api = {
-    deviceId: deviceId, deviceName: function () { return deviceName; },
+    deviceId: deviceId, deviceName: function () { return deviceName; }, appTag: appTag,
     base: base, abs: abs, art: art, probe: probe, discover: discover, localIp: localIp,
     get: function (path, opts) { return request('GET', path, undefined, opts); },
     post: function (path, body, opts) { return request('POST', path, body || {}, opts); },

@@ -31,7 +31,8 @@ class RemoteLink(private val model: AppModel) {
         wanted = true
         val mine = ++generation
         // OkHttp takes the http(s) URL and speaks WebSocket on it
-        val url = api.url("/api/v1/remote/ws", mapOf("device" to Api.deviceId, "name" to Api.deviceName, "kind" to "android"))
+        val url = api.url("/api/v1/remote/ws", mapOf("device" to Api.deviceId, "name" to Api.deviceName, "kind" to "android",
+            "app" to "android/${Api.appVersion}"))
         socket = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) = on(mine) {
                 retryMs = 1000

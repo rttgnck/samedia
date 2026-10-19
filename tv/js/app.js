@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  SM.VERSION = '0.8.0';
+  SM.VERSION = '0.9.0';
   var el = SM.util.el, ui = SM.ui;
 
   var SECTIONS = [
@@ -181,6 +181,7 @@
   }
 
   function exitApp() {
+    if (SM.util.native) { SM.util.native.exit(); return; }
     try { tizen.application.getCurrentApplication().exit(); } catch (e) { window.close(); }
   }
 
@@ -281,7 +282,7 @@
       nav.classList.toggle('open', nav.contains(e.target));
     });
     // Mouse/pointer support (Samsung "Smart Remote" pointer, and desktop development).
-    if (SM.util.isTizen) {
+    if (SM.util.isTV) {
       document.documentElement.classList.add('tv');
     } else {
       // Desktop development: hovering focuses (on the TV a stray pointer must not move focus)
@@ -311,7 +312,12 @@
     dispatch(action, { keyCode: 0, repeat: false, target: document.activeElement, preventDefault: function () {} });
   }
 
-  SM.app = { goHome: goHome, start: start, selectProfile: selectProfile, avatar: avatar, key: remoteKey };
+  /** A key the Android shell handles itself (Back, media keys), passed on as an action. */
+  function press(action) {
+    dispatch(action, { keyCode: 0, repeat: false, target: document.activeElement, preventDefault: function () {} });
+  }
+
+  SM.app = { goHome: goHome, start: start, selectProfile: selectProfile, avatar: avatar, key: remoteKey, press: press };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();

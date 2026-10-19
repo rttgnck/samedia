@@ -64,10 +64,31 @@ def _item(container, vcodec, acodec):
 def test_ipad_gets_direct_mp4_and_segments_for_the_rest():
     assert playback.decide(_item("mp4", "hevc", "eac3"), IPAD)["mode"] == "direct"
     d = playback.decide(_item("mkv", "h264", "ac3"), IPAD, session="ipad")
-    assert d["mode"] == "hls" and d["seekable"] and "/1/copy/index.m3u8" in d["url"]
+    assert d["mode"] == "hls" and d["seekable"] and "/1/copy/copy/index.m3u8" in d["url"]
     d = playback.decide(_item("mp4", "h264", "dts"), IPAD)                 # audio the iPad can't play
     assert d["mode"] == "hls" and "/eac3/" in d["url"]
-    # HEVC outside MP4: Apple players can't take it in MPEG-TS, so it is converted
-    assert playback.decide(_item("mkv", "hevc", "aac"), IPAD)["mode"] == "transcode"
+    # HEVC outside MP4: Apple players can't take it in MPEG-TS, so up to 1080p it is re-encoded
+    # in the segments (still seekable), beyond that the server can't keep up: one-way stream
+    d = playback.decide(_item("mkv", "hevc", "aac"), IPAD)
+    assert d["mode"] == "hls" and "/copy/h264/index.m3u8" in d["url"]
+    uhd = _item("mkv", "hevc", "aac")
+    uhd["media"]["video"]["width"] = 3840
+    assert playback.decide(uhd, IPAD)["mode"] == "transcode"
     # the TV (no preference) keeps the one-way stream for what it can't play directly
     assert playback.decide(_item("mp4", "h264", "dts"), None)["mode"] == "remux"
+
+
+TV = {"containers": ["mkv", "mp4", "avi"], "video": ["h264", "hevc", "mpeg4", "vc1"],
+      "audio": ["aac", "ac3", "mp3"], "hls_video": ["h264", "hevc", "mpeg2video"], "max_width": 3840}
+
+
+def test_a_tv_that_needs_segments_gets_old_codecs_re_encoded_in_them():
+    """XviD on a Samsung TV that can only seek in segments: H.264 segments rather than a stream
+    of a codec its player won't take there."""
+    xvid = _item("avi", "mpeg4", "mp3")
+    xvid["media"]["video"].update(width=640, height=272)
+    d = playback.decide(xvid, TV, force="hls")
+    assert d["mode"] == "hls" and d["seekable"] and "/copy/h264/index.m3u8" in d["url"]
+    # what it can take in segments stays untouched
+    d = playback.decide(_item("mkv", "h264", "ac3"), TV, force="hls")
+    assert d["mode"] == "hls" and "/copy/copy/index.m3u8" in d["url"]

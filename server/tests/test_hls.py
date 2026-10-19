@@ -140,3 +140,32 @@ def test_players_that_cant_take_the_codec_in_segments_get_something_else(client,
     caps = {"containers": ["mp4"], "video": ["h264", "hevc"], "audio": ["aac"], "hls_video": ["hevc"]}
     d = client.post("/api/v1/items/m1/playback", json={"force": "hls", "capabilities": caps}).json()
     assert d["mode"] == "direct"
+
+
+def test_old_codecs_are_re_encoded_in_segments(client, tmp_path):
+    """XviD (MPEG-4 Part 2) for a TV that only seeks in segments: H.264 segments, each starting on
+    a forced keyframe at the same times as the untouched video would."""
+    clip = tmp_path / "xvid.avi"
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
+                    "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-t", "30",
+                    "-c:v", "mpeg4", "-g", "48", "-c:a", "libmp3lame", "-b:a", "64k", str(clip)], check=True)
+    add_clip(clip)
+    caps = {"containers": ["avi"], "video": ["h264", "mpeg4"], "audio": ["mp3"], "hls_video": ["h264", "hevc"]}
+    d = client.post("/api/v1/items/m1/playback", json={"force": "hls", "session": "tv2", "capabilities": caps}).json()
+    assert d["mode"] == "hls" and d["url"].endswith("/copy/h264/index.m3u8")
+    base = d["url"].rsplit("/", 1)[0]
+    names = [line for line in client.get(d["url"]).text.splitlines() if line.endswith(".ts")]
+    starts = hls.boundaries(hls.keyframes(clip, "avi", 0, 30.0), 30.0)
+    assert len(names) == len(starts) >= 4
+    for n in (0, 1, 3):          # 3: a seek, made by a new ffmpeg from there
+        r = client.get(f"{base}/{n}.ts")
+        assert r.status_code == 200
+        f = tmp_path / f"t{n}.ts"
+        f.write_bytes(r.content)
+        codec = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=codec_name",
+                                "-of", "csv=p=0", str(f)], capture_output=True, text=True).stdout.split()
+        assert set(codec) == {"h264"}
+        pk = packets(r.content, tmp_path)
+        assert pk[0][1], f"segment {n} must start with a keyframe"
+        assert abs(min(p for p, _ in pk) - (starts[n] + hls.TS_OFFSET)) < 0.05
+        assert max(p for p, _ in pk) < (starts[n + 1] if n + 1 < len(starts) else 31) + hls.TS_OFFSET

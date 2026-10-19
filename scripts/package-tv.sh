@@ -38,6 +38,22 @@ command -v tizen >/dev/null || { echo "tizen CLI not found. Install Tizen Studio
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 cp -R "$ROOT/tv/config.xml" "$ROOT/tv/index.html" "$ROOT/tv/icon.png" "$ROOT/tv/css" "$ROOT/tv/js" "$BUILD/"
 
+# Release builds (scripts/release.mjs): the version in config.xml and the build the app reports
+if [ -n "${SAMEDIA_VERSION:-}" ]; then
+  sed -i '' -E 's/(<widget[^>]* version=")[0-9.]+"/\1'"$SAMEDIA_VERSION"'"/' "$BUILD/config.xml"
+fi
+if [ -n "${SAMEDIA_BUILD:-}" ]; then
+  printf 'window.SM_BUILD = %s;\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$SAMEDIA_BUILD")" > "$BUILD/js/build-info.js"
+  python3 - "$BUILD/index.html" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace('<script src="js/core/util.js"></script>',
+              '<script src="js/build-info.js"></script>\n  <script src="js/core/util.js"></script>', 1)
+open(p, "w").write(s)
+PY
+fi
+
 if [ -n "$DEVLOG" ]; then
   # Diagnostic build: define SM_DEV before any app script runs
   printf 'window.SM_DEV = { logUrl: %s };\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$DEVLOG")" > "$BUILD/js/dev-config.js"

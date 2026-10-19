@@ -99,6 +99,8 @@ window.SM = window.SM || {};
   }
 
   var isTizen = typeof window.tizen !== 'undefined' && typeof window.webapis !== 'undefined';
+  // Samedia for Google TV runs this same app in an Android shell, which plays the video natively
+  var native = window.SamediaNative || null;
 
   /** "1 movie", "3 movies" */
   function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
@@ -116,5 +118,6 @@ window.SM = window.SM || {};
     plural: plural, resumeAt: resumeAt,
     el: el, append: append, clear: clear, clock: clock, runtime: runtime, endsAt: endsAt,
     episodeCode: episodeCode, debounce: debounce, hue: hue, uid: uid, isTizen: isTizen,
+    native: native, isAndroid: !!native, isTV: isTizen || !!native,
   };
 })();

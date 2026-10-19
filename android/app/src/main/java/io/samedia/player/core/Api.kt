@@ -41,8 +41,13 @@ class Api(val base: HttpUrl, var token: String = "", var profileId: String? = nu
         lateinit var deviceId: String
             private set
         val deviceName: String get() = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
+        /** This build's version, for the server's list of screens (and the updater). */
+        var appVersion: String = "0"
+            private set
 
         fun init(context: Context) {
+            appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+                .getOrNull() ?: "0"
             val prefs = context.getSharedPreferences("samedia", Context.MODE_PRIVATE)
             deviceId = prefs.getString("deviceID", null) ?: ("android-" + UUID.randomUUID().toString()
                 .replace("-", "").take(20)).also { prefs.edit().putString("deviceID", it).apply() }
@@ -83,6 +88,7 @@ class Api(val base: HttpUrl, var token: String = "", var profileId: String? = nu
         val b = Request.Builder().url(url(path))
             .header("X-Samedia-Device", deviceId)
             .header("X-Samedia-Device-Name", URLEncoder.encode(deviceName, "UTF-8"))
+            .header("X-Samedia-App", "android/$appVersion")
         profileId?.let { b.header("X-Samedia-Profile", it) }
         if (token.isNotEmpty()) b.header("Authorization", "Bearer $token")
         val payload = body?.toString()?.toRequestBody("application/json".toMediaType())

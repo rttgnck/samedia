@@ -93,3 +93,30 @@ def test_tvs_take_arrow_keys_and_volume(client):
         assert tv.receive_json() == {"type": "command", "action": "volume", "key": "mute"}
         assert client.post("/api/v1/remote/players/tv-den/command", json={"action": "key", "key": "power"}).status_code == 400
         assert client.post("/api/v1/remote/players/tv-den/command", json={"action": "volume", "key": "left"}).status_code == 400
+
+
+def test_devices_say_which_app_and_version_they_run(client):
+    h = {"X-Samedia-Device": "gtv-1", "X-Samedia-Device-Name": "Den TV", "X-Samedia-App": "googletv/0.9.0"}
+    client.get("/api/v1/home", headers=h)
+    dev = next(d for d in client.get("/api/v1/admin/devices").json()["devices"] if d["id"] == "gtv-1")
+    assert dev["app"] == "googletv" and dev["version"] == "0.9.0" and dev["address"] and not dev["online"]
+    # an update shows at once; nonsense is ignored
+    client.get("/api/v1/home", headers={**h, "X-Samedia-App": "googletv/1.0.0"})
+    client.get("/api/v1/home", headers={**h, "X-Samedia-App": "toaster/9"})
+    dev = next(d for d in client.get("/api/v1/admin/devices").json()["devices"] if d["id"] == "gtv-1")
+    assert dev["version"] == "1.0.0" and dev["app"] == "googletv"
+    # and over the remote-control socket
+    with client.websocket_connect("/api/v1/remote/ws?device=tv-x&name=Frame&kind=tv&app=tv%2F0.9.1") as tv:
+        tv.send_json({"type": "ping"}); tv.receive_json()
+        dev = next(d for d in client.get("/api/v1/admin/devices").json()["devices"] if d["id"] == "tv-x")
+        assert dev["app"] == "tv" and dev["version"] == "0.9.1" and dev["online"]
+
+
+def test_playback_failures_are_kept_for_finding_the_title(client):
+    h = {"X-Samedia-Device": "tv-y", "X-Samedia-Device-Name": "Frame"}
+    r = client.post("/api/v1/events", headers=h, json={"kind": "playback_error", "item_id": "m1", "mode": "hls",
+                                                         "error": "PLAYER_ERROR_NOT_SUPPORTED_FORMAT", "recovered": False})
+    assert r.status_code == 200
+    assert client.post("/api/v1/events", json={"kind": "party"}).status_code == 400
+    ev = client.get("/api/v1/admin/events").json()["events"]
+    assert ev[0]["title"] == "Alien" and ev[0]["device"] == "Frame" and ev[0]["error"].endswith("FORMAT")

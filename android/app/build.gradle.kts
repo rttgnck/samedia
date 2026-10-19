@@ -1,3 +1,7 @@
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import javax.inject.Inject
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,8 +17,12 @@ android {
         applicationId = "io.samedia.player"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.8.0"
+        // The repo's VERSION; release builds add the build number (scripts/release.mjs)
+        val version = (findProperty("samediaVersion") as String?) ?: rootProject.file("../VERSION").readText().trim()
+        val build = (findProperty("samediaBuild") as String?) ?: "0"
+        val parts = build.split(".")
+        versionCode = maxOf(1, parts[0].toInt() * 10 + (parts.getOrNull(1)?.toInt() ?: 0))
+        versionName = if (build == "0") version else "$version+$build"
     }
 
     buildTypes {
@@ -38,6 +46,31 @@ android {
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
+/** The TV app (repo's tv/ folder), bundled for Samedia on Google TV: one copy of the TV UI. */
+abstract class TvWebTask : DefaultTask() {
+    @get:InputDirectory abstract val source: DirectoryProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+    @get:Inject abstract val fs: FileSystemOperations
+
+    @TaskAction
+    fun copy() {
+        fs.sync {
+            from(source) { include("index.html", "icon.png", "css/**", "js/**") }
+            into(outputDir.dir("tv"))
+        }
+    }
+}
+
+val tvWeb = tasks.register<TvWebTask>("tvWeb") {
+    source.set(rootProject.layout.projectDirectory.dir("../tv"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(tvWeb, TvWebTask::outputDir)
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
     implementation(composeBom)
@@ -49,6 +82,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+    implementation("androidx.webkit:webkit:1.14.0")
 
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-exoplayer-hls:1.8.0")

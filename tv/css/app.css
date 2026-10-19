@@ -451,8 +451,8 @@ video.av-object { background: #000; object-fit: contain; }
 .picture-choice.selected { box-shadow: 0 0 0 4px rgba(255, 255, 255, .35); }
 .picture-choice.focused { transform: scale(1.1); box-shadow: 0 0 0 6px var(--focus), 0 16px 40px rgba(0, 0, 0, .6); }
 .nav-brand { background: none; }
-.nav-brand img, img.logo { width: 100%; height: 100%; border-radius: 14px; display: block; }
-img.logo { background: none; }
+.nav-brand img { width: 100%; height: 100%; border-radius: 14px; display: block; }
+img.logo { border-radius: 14px; display: block; background: none; }   /* sized by .logo */
 
 /* ── detail: tagline and credits ───────────────────────────────── */
 .detail-tagline { font-size: 26px; font-style: italic; color: var(--dim); margin: -8px 0 18px; }

@@ -83,16 +83,25 @@ api = Depends(require_auth)
 _PROFILE_ID = re.compile(r"^[a-z0-9]{1,32}$")
 _DEVICE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 _DEVICE_SEEN_EVERY = 60  # seconds between last-seen updates
+_APP = re.compile(r"^(tv|googletv|android|ios)/([0-9A-Za-z.+-]{1,20})$")
+
+
+def _app_header(value: str | None) -> tuple[str | None, str | None]:
+    """X-Samedia-App: "tv/0.9.0" -> ("tv", "0.9.0")."""
+    m = _APP.match(value or "")
+    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 def current_device(request: Request) -> dict | None:
     """The TV making the request (X-Samedia-Device), registered on first contact."""
     did = request.headers.get("x-samedia-device") or ""
     model = urllib.parse.unquote(request.headers.get("x-samedia-device-name") or "")[:80] or None
-    return register_device(did, model)
+    app, version = _app_header(request.headers.get("x-samedia-app"))
+    return register_device(did, model, app, version, request.client.host if request.client else None)
 
 
-def register_device(did: str, model: str | None) -> dict | None:
+def register_device(did: str, model: str | None, app: str | None = None, version: str | None = None,
+                    address: str | None = None) -> dict | None:
     if not _DEVICE_ID.match(did or ""):
         return None
     now = time.time()
@@ -100,10 +109,14 @@ def register_device(did: str, model: str | None) -> dict | None:
     if not row:
         default = db.load_settings().get("new_device_profiles")   # None = all profiles
         db.upsert("devices", {"id": did, "name": None, "model": model, "profiles": default,
-                              "created_at": now, "last_seen": now})
+                              "created_at": now, "last_seen": now, "app": app, "version": version,
+                              "address": address})
         row = db.one("SELECT * FROM devices WHERE id=?", (did,))
-    elif now - row["last_seen"] > _DEVICE_SEEN_EVERY or (model and model != row["model"]):
-        db.execute("UPDATE devices SET last_seen=?, model=COALESCE(?, model) WHERE id=?", (now, model, did))
+    elif (now - row["last_seen"] > _DEVICE_SEEN_EVERY or (model and model != row["model"])
+          or (version and version != row.get("version")) or (address and address != row.get("address"))):
+        db.execute("UPDATE devices SET last_seen=?, model=COALESCE(?, model), app=COALESCE(?, app), "
+                   "version=COALESCE(?, version), address=COALESCE(?, address) WHERE id=?",
+                   (now, model, app, version, address, did))
     return row
 
 
@@ -307,7 +320,9 @@ def delete_profile(profile_id: str):
 
 def _device_out(r: dict) -> dict:
     return {"id": r["id"], "name": r.get("name") or r.get("model") or "TV", "custom_name": r.get("name"),
-            "model": r.get("model"), "profiles": r.get("profiles"), "last_seen": r["last_seen"]}
+            "model": r.get("model"), "profiles": r.get("profiles"), "last_seen": r["last_seen"],
+            "app": r.get("app"), "version": r.get("version"), "address": r.get("address"),
+            "online": r["id"] in remote.hub.players}
 
 
 class DeviceBody(BaseModel):
@@ -555,7 +570,7 @@ def stream_direct(item_id: str, request: Request, ext: str = ""):
 
 @app.websocket("/api/v1/remote/ws")
 async def remote_ws(ws: WebSocket, device: str = "", name: str = "", kind: str = "tv", can: str = "",
-                    t: str | None = None):
+                    app: str = "", t: str | None = None):
     """A running app, ready to be told what to play and telling what it plays."""
     if config.pin and not (t and hmac.compare_digest(t, access_token())):
         await ws.close(code=4401)
@@ -565,7 +580,8 @@ async def remote_ws(ws: WebSocket, device: str = "", name: str = "", kind: str =
         return
     await ws.accept()
     name = urllib.parse.unquote(name)[:80] or kind
-    await run_in_threadpool(register_device, device, name)
+    app_name, version = _app_header(urllib.parse.unquote(app))
+    await run_in_threadpool(register_device, device, name, app_name, version, ws.client.host if ws.client else None)
     player = await remote.hub.connect(ws, device, name, re.sub(r"[^a-z]", "", kind)[:12] or "tv", can[:60])
     try:
         while True:
@@ -633,17 +649,61 @@ async def remote_command(device_id: str, body: CommandBody, request: Request):
     return {"ok": True}
 
 
+# ── what went wrong (apps report playback failures, so the title can be found later) ──
+
+_EVENTS_KEPT = 300
+
+
+class EventBody(BaseModel):
+    kind: str
+    item_id: str | None = None
+    mode: str | None = None            # direct | hls | remux | transcode
+    error: str | None = None           # the player's own message
+    reasons: list[str] | None = None   # the server's, from the playback decision
+    position: float | None = None
+    recovered: bool | None = None      # the app retried another way
+
+
+@app.post("/api/v1/events", dependencies=[api])
+def report_event(body: EventBody, request: Request):
+    if body.kind != "playback_error":
+        raise HTTPException(400, "Unknown event")
+    device = current_device(request)
+    item = db.one("SELECT id, title FROM items WHERE id=?", (body.item_id,)) if body.item_id else None
+    detail = {"mode": (body.mode or "")[:20], "error": (body.error or "")[:300],
+              "reasons": [str(r)[:120] for r in (body.reasons or [])[:6]],
+              "position": body.position, "recovered": bool(body.recovered)}
+    db.execute("INSERT INTO events (at, device_id, kind, item_id, title, detail) VALUES (?, ?, ?, ?, ?, ?)",
+               (time.time(), device["id"] if device else None, body.kind, item and item["id"],
+                item and item["title"], json.dumps(detail)))
+    db.execute("DELETE FROM events WHERE id <= (SELECT MAX(id) FROM events) - ?", (_EVENTS_KEPT,))
+    log.warning("playback failed on %s: %s (%s) %s: %s%s", device and (device.get("name") or device.get("model")),
+                item and item["title"], body.item_id, detail["mode"], detail["error"],
+                " (retrying another way)" if detail["recovered"] else "")
+    return {"ok": True}
+
+
+@app.get("/api/v1/admin/events", dependencies=[api])
+def list_events(limit: int = Query(50, ge=1, le=_EVENTS_KEPT)):
+    rows = db.query("SELECT e.*, d.name AS device_name, d.model AS device_model FROM events e "
+                    "LEFT JOIN devices d ON d.id = e.device_id ORDER BY e.id DESC LIMIT ?", (limit,))
+    return {"events": [{"at": r["at"], "kind": r["kind"], "item_id": r["item_id"], "title": r["title"],
+                        "device": r["device_name"] or r["device_model"], **json.loads(r["detail"] or "{}")}
+                       for r in rows]}
+
+
 # ── HLS (segments of the untouched video; see hls.py) ─────────────────
 # The token sits in the path: players resolve segment URIs against the playlist URL and drop
 # any query string, and Samsung's player wants the playlist URL to end in .m3u8.
 
-def _hls_request(token: str, item_id: str, session: str, audio: int, acodec: str) -> tuple[dict, str]:
+def _hls_request(token: str, item_id: str, session: str, audio: int, acodec: str,
+                 vcodec: str = "copy") -> tuple[dict, str]:
     if config.pin and not hmac.compare_digest(token, access_token()):
         raise HTTPException(401, "PIN required")
     row = library.get_item(item_id)
     if not row or not (row.get("media") or {}).get("video"):
         raise HTTPException(404)
-    if acodec not in ("copy", "eac3"):
+    if acodec not in ("copy", "eac3") or vcodec not in ("copy", "h264"):
         raise HTTPException(400, "bad codec")
     if audio >= 0 and audio not in {a["index"] for a in row["media"].get("audio", [])}:
         raise HTTPException(400, "bad audio index")
@@ -651,22 +711,25 @@ def _hls_request(token: str, item_id: str, session: str, audio: int, acodec: str
 
 
 @app.get("/api/v1/hls/{token}/{item_id}/{session}/{audio}/{acodec}/index.m3u8")
-async def hls_playlist(token: str, item_id: str, session: str, audio: int, acodec: str):
-    row, _ = _hls_request(token, item_id, session, audio, acodec)
+@app.get("/api/v1/hls/{token}/{item_id}/{session}/{audio}/{acodec}/{vcodec}/index.m3u8")
+async def hls_playlist(token: str, item_id: str, session: str, audio: int, acodec: str, vcodec: str = "copy"):
+    row, _ = _hls_request(token, item_id, session, audio, acodec, vcodec)
     starts, duration = await run_in_threadpool(hls.index_for, row)
     return Response(hls.playlist(starts, duration), media_type="application/vnd.apple.mpegurl",
                     headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/v1/hls/{token}/{item_id}/{session}/{audio}/{acodec}/{n:int}.ts")
-async def hls_segment(token: str, item_id: str, session: str, audio: int, acodec: str, n: int):
-    row, session = _hls_request(token, item_id, session, audio, acodec)
+@app.get("/api/v1/hls/{token}/{item_id}/{session}/{audio}/{acodec}/{vcodec}/{n:int}.ts")
+async def hls_segment(token: str, item_id: str, session: str, audio: int, acodec: str, n: int,
+                      vcodec: str = "copy"):
+    row, session = _hls_request(token, item_id, session, audio, acodec, vcodec)
     starts, _ = await run_in_threadpool(hls.index_for, row)
     if not 0 <= n < len(starts):
         raise HTTPException(404)
     stream = next((a for a in row["media"].get("audio", []) if a["index"] == audio), {})
-    path = await hls.manager.segment(session, (item_id, audio, acodec), row, starts, n, audio, acodec,
-                                     min(stream.get("channels") or 6, 6))
+    path = await hls.manager.segment(session, (item_id, audio, acodec, vcodec), row, starts, n, audio, acodec,
+                                     min(stream.get("channels") or 6, 6), vcodec=vcodec)
     if not path:
         raise HTTPException(503, "Segment not ready")
     try:
