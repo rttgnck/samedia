@@ -38,6 +38,10 @@ Samsung only allows store apps by default, so you install Samedia in **Developer
    - Create an author certificate. This requires signing in with a Samsung account.
    - Create a distributor certificate. **Add the TV's DUID**, which Certificate Manager reads from the connected
      TV. Connect first with `sdb connect <tv-ip>`.
+   - **Adding another TV later:** make a new profile that reuses the author certificate (**Use an existing
+     author certificate**, pick your `author.p12`) with a new distributor certificate listing every TV's DUID.
+     Keep the same author: a TV only accepts updates signed by the author it was installed with, so a new
+     author means uninstalling Samedia (and its settings) on the TVs you already have.
 4. Add Tizen Studio's tools to your PATH:
 
 ```bash
